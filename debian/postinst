@@ -3,13 +3,27 @@ set -e
 
 echo "Post-install script running..."
 
-# Example: ensure config directory exists
+#ensure config directory exists
 mkdir -p /etc/temp_daemon
 chown root:root /etc/temp_daemon
 chmod 755 /etc/temp_daemon
 
-# Restart systemd service if installed
-if systemctl list-unit-files | grep -q temp_daemon.service; then
-    systemctl daemon-reload
-    systemctl restart temp_daemon.service
+#DEBHELPER#
+
+SERVICE_NAME=temp_daemon
+CONFIG_PATH=/etc/temp_daemon/config.toml
+MARKER_FILE=/etc/temp_daemon/.configured
+
+if [ "$1" = "configure" ]; then
+    if [ ! -f "$MARKER_FILE" ]; then
+        echo "First-time install detected."
+        echo "Please edit the config file at: $CONFIG_PATH"
+        echo "Once configured, run: sudo systemctl start $SERVICE_NAME"
+        touch "$MARKER_FILE"
+    else
+        echo "Upgrade detected. Restarting service..."
+        systemctl daemon-reexec
+        systemctl daemon-reload
+        systemctl restart "$SERVICE_NAME"
+    fi
 fi

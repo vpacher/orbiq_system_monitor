@@ -1,7 +1,8 @@
 [package]
 name = "temp_daemon"
-version = "0.1.11"
+version = "0.1.15"
 edition = "2024"
+description = "A lightweight temperature monitoring daemon with MQTT and Home Assistant support"
 
 [dependencies]
 tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros", "signal"] }
@@ -17,8 +18,14 @@ linker = "/opt/homebrew/bin/x86_64-unknown-linux-gnu-gcc"
 maintainer = "Volker Pacher <volker.pacher@gmail.com>"
 license-file = ["LICENSE"]
 depends = ["libc6 (>= 2.17)"]
+name = "temp_daemon"
 assets = [
     ["target/release/temp_daemon", "usr/bin/", "755"],
     ["config/temp_daemon.toml", "etc/temp_daemon/config.toml", "644"]
 ]
 maintainer-scripts = "debian"
+
+[package.metadata.deb.systemd-units]
+unit-scripts = "debian"
+enable = false
+start = false
