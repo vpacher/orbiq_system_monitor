@@ -1,0 +1,22 @@
+# Temperature Daemon Configuration
+
+[mqtt]
+broker = "localhost"
+port = 1883
+username = "uname"
+password = "password"
+client_id = "temp-daemon"
+keep_alive_secs = 30
+
+[device]
+name = "hostname"
+model = "Temperature Monitoring System"
+manufacturer = "Rust Temperature Daemon"
+sw_version = "0.1.11"
+hw_version = "1.0"
+
+# Update interval in seconds
+update_interval_secs = 30
+
+# Delay between discovery messages in milliseconds
+discovery_delay_ms = 100

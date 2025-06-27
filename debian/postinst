@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+echo "Post-install script running..."
+
+# Example: ensure config directory exists
+mkdir -p /etc/temp_daemon
+chown root:root /etc/temp_daemon
+chmod 755 /etc/temp_daemon
+
+# Restart systemd service if installed
+if systemctl list-unit-files | grep -q temp_daemon.service; then
+    systemctl daemon-reload
+    systemctl restart temp_daemon.service
+fi

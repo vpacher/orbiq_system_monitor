@@ -1,0 +1,24 @@
+[package]
+name = "temp_daemon"
+version = "0.1.11"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros", "signal"] }
+rumqttc = "0.24.0"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+clap = { version = "4.0", features = ["derive"] }
+
+[target.x86_64-unknown-linux-gnu]
+linker = "/opt/homebrew/bin/x86_64-unknown-linux-gnu-gcc"
+
+[package.metadata.deb]
+maintainer = "Volker Pacher <volker.pacher@gmail.com>"
+license-file = ["LICENSE"]
+depends = ["libc6 (>= 2.17)"]
+assets = [
+    ["target/release/temp_daemon", "usr/bin/", "755"],
+    ["config/temp_daemon.toml", "etc/temp_daemon/config.toml", "644"]
+]
+maintainer-scripts = "debian"
