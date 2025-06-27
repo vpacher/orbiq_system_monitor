@@ -73,8 +73,13 @@ impl DaemonConfig {
         let content = fs::read_to_string(&path)
             .map_err(|e| ConfigError::FileRead(path.as_ref().to_path_buf(), e))?;
 
-        let config: DaemonConfig = toml::from_str(&content)
+        let mut config: DaemonConfig = toml::from_str(&content)
             .map_err(|e| ConfigError::Parse(e))?;
+
+        // Make client_id unique by appending device name if it's just the default
+        if config.mqtt.client_id == "temp-daemon" {
+            config.mqtt.client_id = format!("temp-daemon-{}", config.device.name);
+        }
 
         Ok(config)
     }
@@ -104,7 +109,10 @@ impl DaemonConfig {
         }
 
         println!("No configuration file found, using defaults");
-        Self::default()
+        let mut default_config = Self::default();
+        // Make sure default has unique client ID
+        default_config.mqtt.client_id = format!("temp-daemon-{}", default_config.device.name);
+        default_config
     }
 
     pub fn save_example<P: AsRef<Path>>(path: P) -> Result<(), ConfigError> {

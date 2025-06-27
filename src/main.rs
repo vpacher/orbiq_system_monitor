@@ -1,15 +1,19 @@
 mod config;
 mod homeassistant;
+mod system_sensor;
 mod temperature_sensor;
 
 use clap::{Parser, Subcommand};
 use config::DaemonConfig;
 use homeassistant::{
-    publish_discovery_config, publish_sensor_availability, publish_temperature_state, DeviceInfo,
+    publish_discovery_config, publish_sensor_availability, publish_system_discovery_config,
+    publish_system_sensor_availability, publish_system_state, publish_temperature_state,
+    DeviceInfo,
 };
 use rumqttc::{AsyncClient, Event, MqttOptions, Packet};
 use std::collections::HashSet;
 use std::time::Duration;
+use system_sensor::collect_system_stats;
 use temperature_sensor::collect_all_temperatures;
 use tokio::{signal, task, time};
 
@@ -103,41 +107,49 @@ async fn run_daemon(cli: Cli) {
     );
     println!("MQTT broker: {}:{}", config.mqtt.broker, config.mqtt.port);
 
-    // Setup MQTT
+    // Setup MQTT with better settings for high message volume
     let mut mqttoptions = MqttOptions::new(
         &config.mqtt.client_id,
         &config.mqtt.broker,
         config.mqtt.port,
     );
     mqttoptions.set_keep_alive(Duration::from_secs(config.mqtt.keep_alive_secs));
-
+    
+    // Increase channel capacity and add auto-reconnect settings
+    mqttoptions.set_max_packet_size(10240, 10240);
+    mqttoptions.set_clean_session(false);
+    
     if let (Some(username), Some(password)) = (&config.mqtt.username, &config.mqtt.password) {
         mqttoptions.set_credentials(username, password);
     }
 
-    let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
+    // Increase the eventloop capacity
+    let (client, mut eventloop) = AsyncClient::new(mqttoptions, 100);
 
     // Clone config for the publish task before moving it
     let config_for_task = config.clone();
 
-    // Spawn a task to publish temperatures
+    // Spawn a task to publish temperatures and system stats
     let publish_client = client.clone();
     let publish_task = task::spawn(async move {
         // Wait a bit for connection to establish
         time::sleep(Duration::from_secs(5)).await;
 
-        let mut published_sensors: HashSet<String> = HashSet::new();
+        let mut published_temp_sensors: HashSet<String> = HashSet::new();
+        let mut published_system_sensors: HashSet<String> = HashSet::new();
         let device_info = DeviceInfo::from_config(&config_for_task.device);
+        let mut cycle_counter = 0u32;
 
         loop {
-            let sensors = collect_all_temperatures();
+            let temp_sensors = collect_all_temperatures();
+            let system_sensors = collect_system_stats();
 
-            if sensors.is_empty() {
+            // Handle temperature sensors
+            if temp_sensors.is_empty() {
                 eprintln!("No temperature sensors found");
             } else {
-                // Publish discovery configs for new sensors (all under the same device)
-                for sensor in &sensors {
-                    if !published_sensors.contains(&sensor.name) {
+                for sensor in &temp_sensors {
+                    if !published_temp_sensors.contains(&sensor.name) {
                         if let Err(e) = publish_discovery_config(
                             &publish_client,
                             sensor,
@@ -146,17 +158,28 @@ async fn run_daemon(cli: Cli) {
                         )
                         .await
                         {
-                            eprintln!("Discovery config error: {}", e);
+                            eprintln!("Temperature discovery config error: {}", e);
                         } else {
-                            published_sensors.insert(sensor.name.clone());
+                            published_temp_sensors.insert(sensor.name.clone());
+                            // Mark as available immediately after discovery
+                            time::sleep(Duration::from_millis(50)).await; // Small delay between messages
+                            if let Err(e) = publish_sensor_availability(
+                                &publish_client,
+                                sensor,
+                                &config_for_task.device.name,
+                                true,
+                            )
+                            .await
+                            {
+                                eprintln!("Temperature availability publish error: {}", e);
+                            }
                         }
                         time::sleep(Duration::from_millis(config_for_task.discovery_delay_ms))
                             .await;
                     }
                 }
 
-                // Publish temperature states
-                for sensor in &sensors {
+                for sensor in &temp_sensors {
                     if let Err(e) = publish_temperature_state(
                         &publish_client,
                         sensor,
@@ -166,6 +189,82 @@ async fn run_daemon(cli: Cli) {
                     {
                         eprintln!("Temperature state publish error: {}", e);
                     }
+                    // Small delay between state publications
+                    time::sleep(Duration::from_millis(10)).await;
+                }
+            }
+
+            // Handle system sensors
+            for sensor in &system_sensors {
+                if !published_system_sensors.contains(&sensor.name) {
+                    if let Err(e) = publish_system_discovery_config(
+                        &publish_client,
+                        sensor,
+                        &config_for_task.device.name,
+                        &device_info,
+                    )
+                    .await
+                    {
+                        eprintln!("System discovery config error: {}", e);
+                    } else {
+                        published_system_sensors.insert(sensor.name.clone());
+                        // Mark as available immediately after discovery
+                        time::sleep(Duration::from_millis(50)).await; // Small delay between messages
+                        if let Err(e) = publish_system_sensor_availability(
+                            &publish_client,
+                            sensor,
+                            &config_for_task.device.name,
+                            true,
+                        )
+                        .await
+                        {
+                            eprintln!("System availability publish error: {}", e);
+                        }
+                    }
+                    time::sleep(Duration::from_millis(config_for_task.discovery_delay_ms)).await;
+                }
+            }
+
+            for sensor in &system_sensors {
+                if let Err(e) =
+                    publish_system_state(&publish_client, sensor, &config_for_task.device.name)
+                        .await
+                {
+                    eprintln!("System state publish error: {}", e);
+                }
+                // Small delay between state publications
+                time::sleep(Duration::from_millis(10)).await;
+            }
+
+            // Publish availability for all sensors periodically (every 20 cycles to reduce message volume)
+            cycle_counter += 1;
+            if cycle_counter % 20 == 0 {  // Every 20 cycles (every 10 minutes with 30-second intervals)
+                println!("Refreshing sensor availability status...");
+                for sensor in &temp_sensors {
+                    if let Err(e) = publish_sensor_availability(
+                        &publish_client,
+                        sensor,
+                        &config_for_task.device.name,
+                        true,
+                    )
+                    .await
+                    {
+                        eprintln!("Temperature availability refresh error: {}", e);
+                    }
+                    time::sleep(Duration::from_millis(20)).await;
+                }
+                for sensor in &system_sensors {
+                    if let Err(e) = publish_system_sensor_availability(
+                        &publish_client,
+                        sensor,
+                        &config_for_task.device.name,
+                        true,
+                    )
+                    .await
+                    {
+                        eprintln!("System availability refresh error: {}", e);
+                    }
+                    time::sleep(Duration::from_millis(20)).await;
                 }
             }
 
@@ -174,11 +273,19 @@ async fn run_daemon(cli: Cli) {
                 _ = time::sleep(Duration::from_secs(config_for_task.update_interval_secs)) => {},
                 _ = signal::ctrl_c() => {
                     println!("Received shutdown signal, marking sensors as offline...");
-                    let sensors = collect_all_temperatures();
-                    for sensor in &sensors {
+                    let temp_sensors = collect_all_temperatures();
+                    for sensor in &temp_sensors {
                         if let Err(e) = publish_sensor_availability(&publish_client, sensor, &config_for_task.device.name, false).await {
-                            eprintln!("Failed to mark sensor {} as offline: {}", sensor.name, e);
+                            eprintln!("Failed to mark temperature sensor {} as offline: {}", sensor.name, e);
                         }
+                        time::sleep(Duration::from_millis(50)).await;
+                    }
+                    let system_sensors = collect_system_stats();
+                    for sensor in &system_sensors {
+                        if let Err(e) = publish_system_sensor_availability(&publish_client, sensor, &config_for_task.device.name, false).await {
+                            eprintln!("Failed to mark system sensor {} as offline: {}", sensor.name, e);
+                        }
+                        time::sleep(Duration::from_millis(50)).await;
                     }
                     break;
                 }
@@ -186,7 +293,7 @@ async fn run_daemon(cli: Cli) {
         }
     });
 
-    // Handle events and connection status
+    // Handle events and connection status with auto-reconnect
     tokio::select! {
         _ = async {
             loop {
@@ -202,7 +309,9 @@ async fn run_daemon(cli: Cli) {
                     }
                     Err(e) => {
                         eprintln!("MQTT Error: {}", e);
+                        println!("Attempting to reconnect in 5 seconds...");
                         time::sleep(Duration::from_secs(5)).await;
+                        // The eventloop will automatically try to reconnect
                     }
                 }
             }
