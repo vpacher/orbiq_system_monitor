@@ -9,6 +9,7 @@ pub struct MqttConfig {
     pub port: u16,
     pub username: Option<String>,
     pub password: Option<String>,
+    #[serde(skip)] // Don't serialize/deserialize client_id - it's auto-generated
     pub client_id: String,
     pub keep_alive_secs: u64,
 }
@@ -17,8 +18,10 @@ pub struct MqttConfig {
 #[serde(default)]
 pub struct DeviceConfig {
     pub name: String,
-    pub model: Option<String>,
-    pub manufacturer: Option<String>,
+    #[serde(skip)] // Don't serialize/deserialize - these are hardcoded
+    pub model: String,
+    #[serde(skip)] // Don't serialize/deserialize - these are hardcoded
+    pub manufacturer: String,
     pub sw_version: Option<String>,
     pub hw_version: Option<String>,
 }
@@ -39,7 +42,7 @@ impl Default for MqttConfig {
             port: 1883,
             username: None,
             password: None,
-            client_id: "temp-daemon".to_string(),
+            client_id: "orbiq-default".to_string(), // Will be overridden
             keep_alive_secs: 30,
         }
     }
@@ -48,9 +51,9 @@ impl Default for MqttConfig {
 impl Default for DeviceConfig {
     fn default() -> Self {
         Self {
-            name: "temperature-monitor".to_string(),
-            model: Some("Temperature Monitoring System".to_string()),
-            manufacturer: Some("Rust Temperature Daemon".to_string()),
+            name: "system-monitor".to_string(),
+            model: "OrbIQ System Monitor".to_string(), // Hardcoded
+            manufacturer: "OrbIQ".to_string(), // Hardcoded
             sw_version: Some(env!("CARGO_PKG_VERSION").to_string()),
             hw_version: Some("1.0".to_string()),
         }
@@ -76,10 +79,12 @@ impl DaemonConfig {
         let mut config: DaemonConfig = toml::from_str(&content)
             .map_err(|e| ConfigError::Parse(e))?;
 
-        // Make client_id unique by appending device name if it's just the default
-        if config.mqtt.client_id == "temp-daemon" {
-            config.mqtt.client_id = format!("temp-daemon-{}", config.device.name);
-        }
+        // Always override these hardcoded values regardless of what's in the config file
+        config.device.model = "OrbIQ System Monitor".to_string();
+        config.device.manufacturer = "OrbIQ".to_string();
+        
+        // Always derive client_id from device name
+        config.mqtt.client_id = format!("orbiq-{}", config.device.name);
 
         Ok(config)
     }
@@ -87,6 +92,7 @@ impl DaemonConfig {
     pub fn load_with_fallback() -> Self {
         // Try to load from standard locations in order of preference
         let config_paths = [
+            "/etc/orbiq/config.toml",
             "/etc/temp-daemon/config.toml",
             "/etc/temp_daemon/config.toml",
             "/etc/temp-daemon.toml",
@@ -110,8 +116,10 @@ impl DaemonConfig {
 
         println!("No configuration file found, using defaults");
         let mut default_config = Self::default();
-        // Make sure default has unique client ID
-        default_config.mqtt.client_id = format!("temp-daemon-{}", default_config.device.name);
+        // Always ensure proper client ID and hardcoded values
+        default_config.mqtt.client_id = format!("orbiq-{}", default_config.device.name);
+        default_config.device.model = "OrbIQ System Monitor".to_string();
+        default_config.device.manufacturer = "OrbIQ".to_string();
         default_config
     }
 

@@ -1,0 +1,10 @@
+[Unit]
+Description=Temperature Daemon
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/temp_daemon
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

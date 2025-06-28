@@ -1,17 +1,14 @@
-# Temperature Daemon Configuration
+# OrbIQ System Monitoring Configuration
 
 [mqtt]
 broker = "localhost"
 port = 1883
 username = "uname"
 password = "password"
-client_id = "temp-daemon-hostname"
 keep_alive_secs = 30
 
 [device]
 name = "hostname"
-model = "Temperature Monitoring System"
-manufacturer = "Rust Temperature Daemon"
 sw_version = "0.1.11"
 hw_version = "1.0"
 

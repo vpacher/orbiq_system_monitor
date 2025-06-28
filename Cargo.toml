@@ -1,6 +1,6 @@
 [package]
 name = "temp_daemon"
-version = "0.1.20"
+version = "0.1.30"
 edition = "2024"
 description = "A lightweight temperature monitoring daemon with MQTT and Home Assistant support"
 
