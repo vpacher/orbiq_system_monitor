@@ -1,8 +1,8 @@
 [package]
-name = "temp_daemon"
-version = "0.1.30"
+name = "orbiq_system_monitor"
+version = "0.1.37"
 edition = "2024"
-description = "A lightweight temperature monitoring daemon with MQTT and Home Assistant support"
+description = "A lightweight system monitoring daemon with MQTT and Home Assistant support"
 
 [dependencies]
 tokio = { version = "1.45.1", features = ["rt-multi-thread", "macros", "signal"] }
@@ -13,16 +13,13 @@ clap = { version = "4.0", features = ["derive"] }
 sysinfo = "0.35.2"
 serde_json = "1.0.140"
 
-[target.x86_64-unknown-linux-gnu]
-linker = "/opt/homebrew/bin/x86_64-unknown-linux-gnu-gcc"
-
 [package.metadata.deb]
 maintainer = "Volker Pacher <volker.pacher@gmail.com>"
 license-file = ["LICENSE"]
 depends = ["libc6 (>= 2.17)"]
 assets = [
-    ["target/release/temp_daemon", "usr/bin/", "755"],
-    ["config/temp_daemon.toml", "etc/temp_daemon/config.toml", "644"]
+    ["target/release/orbiq_system_monitor", "usr/bin/", "755"],
+    ["config/orbiq_system_monitor.toml", "etc/orbiq_system_monitor/config.toml", "644"]
 ]
 maintainer-scripts = "debian"
 

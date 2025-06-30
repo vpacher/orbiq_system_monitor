@@ -1,3 +1,5 @@
 /target
+/packages
+/releases
 /my_config.toml
 .idea

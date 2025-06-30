@@ -92,11 +92,9 @@ impl DaemonConfig {
     pub fn load_with_fallback() -> Self {
         // Try to load from standard locations in order of preference
         let config_paths = [
+            "/etc/orbiq_system_monitor/config.toml",
             "/etc/orbiq/config.toml",
-            "/etc/temp-daemon/config.toml",
-            "/etc/temp_daemon/config.toml",
-            "/etc/temp-daemon.toml",
-            "./temp_daemon.toml",
+            "./orbiq_system_monitor.toml",
             "./config.toml",
         ];
 

@@ -1,7 +1,7 @@
+use crate::system_sensor::{SystemSensor, SystemSensorType};
+use crate::temperature_sensor::TemperatureSensor;
 use rumqttc::{AsyncClient, QoS};
 use serde_json::json;
-use crate::temperature_sensor::TemperatureSensor;
-use crate::system_sensor::{SystemSensor, SystemSensorType};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DeviceInfo {
@@ -18,11 +18,15 @@ impl DeviceInfo {
         Self {
             identifiers: vec![format!("orbiq_{}", device_config.name)],
             name: device_config.name.clone(),
-            model: "OrbIQ System Monitor".to_string(), // Always hardcoded
-            manufacturer: "OrbIQ".to_string(), // Always hardcoded
-            sw_version: device_config.sw_version.clone()
+            model: "OrbIQ System Monitor".to_string(),
+            manufacturer: "OrbIQ".to_string(),
+            sw_version: device_config
+                .sw_version
+                .clone()
                 .or_else(|| Some(env!("CARGO_PKG_VERSION").to_string())),
-            hw_version: device_config.hw_version.clone()
+            hw_version: device_config
+                .hw_version
+                .clone()
                 .or_else(|| Some("1.0".to_string())),
         }
     }
@@ -65,7 +69,7 @@ fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
                 let mount_name = sensor.name.replace("disk_usage_", "").replace("_", " ");
                 format!("Disk Usage ({})", mount_name.to_uppercase())
             }
-        },
+        }
         SystemSensorType::DiskUsed => {
             if sensor.name.contains("root") {
                 "Disk Used (Root)".to_string()
@@ -73,7 +77,7 @@ fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
                 let mount_name = sensor.name.replace("disk_used_", "").replace("_", " ");
                 format!("Disk Used ({})", mount_name.to_uppercase())
             }
-        },
+        }
         SystemSensorType::DiskTotal => {
             if sensor.name.contains("root") {
                 "Disk Total (Root)".to_string()
@@ -81,7 +85,7 @@ fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
                 let mount_name = sensor.name.replace("disk_total_", "").replace("_", " ");
                 format!("Disk Total ({})", mount_name.to_uppercase())
             }
-        },
+        }
     }
 }
 
@@ -93,12 +97,24 @@ pub async fn publish_discovery_config(
 ) -> Result<(), rumqttc::ClientError> {
     let unique_id = format!("orbiq_{}_{}", device_name, sensor.name);
     let object_id = format!("orbiq_{}_{}", device_name, sensor.name);
-    let state_topic = format!("homeassistant/sensor/{}/state", unique_id);
-    let availability_topic = format!("homeassistant/sensor/{}/availability", unique_id);
-    
-    // Use the friendly name instead of the raw sensor name
+
+    // Home Assistant discovery format with node_id support:
+    // homeassistant/{component}/{node_id}/{object_id}/config
+    let config_topic = format!(
+        "homeassistant/sensor/orbiq_{}/{}/config",
+        device_name, sensor.name
+    );
+    let state_topic = format!(
+        "homeassistant/sensor/orbiq_{}/{}/state",
+        device_name, sensor.name
+    );
+    let availability_topic = format!(
+        "homeassistant/sensor/orbiq_{}/{}/availability",
+        device_name, sensor.name
+    );
+
     let friendly_name = generate_friendly_name(&sensor.name);
-    
+
     let config = json!({
         "name": friendly_name,
         "unique_id": unique_id,
@@ -116,8 +132,9 @@ pub async fn publish_discovery_config(
         "device": device_info
     });
 
-    let topic = format!("homeassistant/sensor/{}/config", unique_id);
-    client.publish(topic, QoS::AtLeastOnce, true, config.to_string()).await
+    client
+        .publish(config_topic, QoS::AtLeastOnce, true, config.to_string())
+        .await
 }
 
 pub async fn publish_temperature_state(
@@ -125,13 +142,17 @@ pub async fn publish_temperature_state(
     sensor: &TemperatureSensor,
     device_name: &str,
 ) -> Result<(), rumqttc::ClientError> {
-    let unique_id = format!("orbiq_{}_{}", device_name, sensor.name);
-    let state_topic = format!("homeassistant/sensor/{}/state", unique_id);
+    let state_topic = format!(
+        "homeassistant/sensor/orbiq_{}/{}/state",
+        device_name, sensor.name
+    );
     let payload = json!({
         "temperature": sensor.temperature
     });
 
-    client.publish(state_topic, QoS::AtLeastOnce, false, payload.to_string()).await
+    client
+        .publish(state_topic, QoS::AtLeastOnce, false, payload.to_string())
+        .await
 }
 
 pub async fn publish_sensor_availability(
@@ -140,8 +161,10 @@ pub async fn publish_sensor_availability(
     device_name: &str,
     available: bool,
 ) -> Result<(), rumqttc::ClientError> {
-    let unique_id = format!("orbiq_{}_{}", device_name, sensor.name);
-    let availability_topic = format!("homeassistant/sensor/{}/availability", unique_id);
+    let availability_topic = format!(
+        "homeassistant/sensor/orbiq_{}/{}/availability",
+        device_name, sensor.name
+    );
     let payload = if available { "online" } else { "offline" };
 
     client
@@ -157,16 +180,32 @@ pub async fn publish_system_discovery_config(
 ) -> Result<(), rumqttc::ClientError> {
     let unique_id = format!("orbiq_{}_{}", device_name, sensor.name);
     let object_id = format!("orbiq_{}_{}", device_name, sensor.name);
-    let state_topic = format!("homeassistant/sensor/{}/state", unique_id);
-    let availability_topic = format!("homeassistant/sensor/{}/availability", unique_id);
-    
+
+    // Home Assistant discovery format with node_id support:
+    // homeassistant/{component}/{node_id}/{object_id}/config
+    let config_topic = format!(
+        "homeassistant/sensor/orbiq_{}/{}/config",
+        device_name, sensor.name
+    );
+    let state_topic = format!(
+        "homeassistant/sensor/orbiq_{}/{}/state",
+        device_name, sensor.name
+    );
+    let availability_topic = format!(
+        "homeassistant/sensor/orbiq_{}/{}/availability",
+        device_name, sensor.name
+    );
+
     let device_class = match &sensor.sensor_type {
-        SystemSensorType::CpuUsage | SystemSensorType::MemoryUsage | SystemSensorType::DiskUsage => None,
-        SystemSensorType::MemoryUsed | SystemSensorType::MemoryTotal | 
-        SystemSensorType::DiskUsed | SystemSensorType::DiskTotal => Some("data_size"),
+        SystemSensorType::CpuUsage
+        | SystemSensorType::MemoryUsage
+        | SystemSensorType::DiskUsage => None,
+        SystemSensorType::MemoryUsed
+        | SystemSensorType::MemoryTotal
+        | SystemSensorType::DiskUsed
+        | SystemSensorType::DiskTotal => Some("data_size"),
     };
 
-    // Use the clean friendly name for system sensors
     let friendly_name = generate_system_friendly_name(sensor);
 
     let mut config = json!({
@@ -190,8 +229,9 @@ pub async fn publish_system_discovery_config(
         config["device_class"] = json!(class);
     }
 
-    let topic = format!("homeassistant/sensor/{}/config", unique_id);
-    client.publish(topic, QoS::AtLeastOnce, true, config.to_string()).await
+    client
+        .publish(config_topic, QoS::AtLeastOnce, true, config.to_string())
+        .await
 }
 
 pub async fn publish_system_state(
@@ -199,13 +239,17 @@ pub async fn publish_system_state(
     sensor: &SystemSensor,
     device_name: &str,
 ) -> Result<(), rumqttc::ClientError> {
-    let unique_id = format!("orbiq_{}_{}", device_name, sensor.name);
-    let state_topic = format!("homeassistant/sensor/{}/state", unique_id);
+    let state_topic = format!(
+        "homeassistant/sensor/orbiq_{}/{}/state",
+        device_name, sensor.name
+    );
     let payload = json!({
         "value": sensor.value
     });
 
-    client.publish(state_topic, QoS::AtLeastOnce, false, payload.to_string()).await
+    client
+        .publish(state_topic, QoS::AtLeastOnce, false, payload.to_string())
+        .await
 }
 
 pub async fn publish_system_sensor_availability(
@@ -214,8 +258,10 @@ pub async fn publish_system_sensor_availability(
     device_name: &str,
     available: bool,
 ) -> Result<(), rumqttc::ClientError> {
-    let unique_id = format!("orbiq_{}_{}", device_name, sensor.name);
-    let availability_topic = format!("homeassistant/sensor/{}/availability", unique_id);
+    let availability_topic = format!(
+        "homeassistant/sensor/orbiq_{}/{}/availability",
+        device_name, sensor.name
+    );
     let payload = if available { "online" } else { "offline" };
 
     client

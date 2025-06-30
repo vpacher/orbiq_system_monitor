@@ -1,5 +1,11 @@
 use sysinfo::{Disks, System};
 
+// Helper function to round to specified decimal places
+fn round_to_decimals(value: f64, decimals: u32) -> f64 {
+    let multiplier = 10_f64.powi(decimals as i32);
+    (value * multiplier).round() / multiplier
+}
+
 #[derive(Debug, Clone)]
 pub struct SystemSensor {
     pub name: String,
@@ -39,20 +45,21 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
 
     let mut sensors = Vec::new();
 
-    // CPU usage (overall)
+    // CPU usage (overall) - rounded to 1 decimal place
     let cpu_usage = system.global_cpu_usage();
     sensors.push(SystemSensor {
         name: "cpu_usage".to_string(),
-        value: cpu_usage as f64,
+        value: round_to_decimals(cpu_usage as f64, 1),
         unit: "%".to_string(),
         sensor_type: SystemSensorType::CpuUsage,
     });
 
-    // Memory usage
+    // Memory usage - rounded to 1 decimal place
     let total_memory = system.total_memory();
     let used_memory = system.used_memory();
     let memory_usage_percent = if total_memory > 0 {
-        (used_memory as f64 / total_memory as f64) * 100.0
+        let percent = (used_memory as f64 / total_memory as f64) * 100.0;
+        round_to_decimals(percent, 1)
     } else {
         0.0
     };
@@ -66,14 +73,14 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
 
     sensors.push(SystemSensor {
         name: "memory_used".to_string(),
-        value: (used_memory as f64) / (1024.0 * 1024.0 * 1024.0), // Convert to GB
+        value: round_to_decimals((used_memory as f64) / (1024.0 * 1024.0 * 1024.0), 2),
         unit: "GB".to_string(),
         sensor_type: SystemSensorType::MemoryUsed,
     });
 
     sensors.push(SystemSensor {
         name: "memory_total".to_string(),
-        value: (total_memory as f64) / (1024.0 * 1024.0 * 1024.0), // Convert to GB
+        value: round_to_decimals((total_memory as f64) / (1024.0 * 1024.0 * 1024.0), 2),
         unit: "GB".to_string(),
         sensor_type: SystemSensorType::MemoryTotal,
     });
@@ -96,7 +103,8 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
         let used_space = total_space - available_space;
 
         let usage_percent = if total_space > 0 {
-            (used_space as f64 / total_space as f64) * 100.0
+            let percent = (used_space as f64 / total_space as f64) * 100.0;
+            round_to_decimals(percent, 1)
         } else {
             0.0
         };
@@ -110,14 +118,14 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
 
         sensors.push(SystemSensor {
             name: format!("disk_used_{}", name_suffix),
-            value: (used_space as f64) / (1024.0 * 1024.0 * 1024.0), // Convert to GB
+            value: round_to_decimals((used_space as f64) / (1024.0 * 1024.0 * 1024.0), 2),
             unit: "GB".to_string(),
             sensor_type: SystemSensorType::DiskUsed,
         });
 
         sensors.push(SystemSensor {
             name: format!("disk_total_{}", name_suffix),
-            value: (total_space as f64) / (1024.0 * 1024.0 * 1024.0), // Convert to GB
+            value: round_to_decimals((total_space as f64) / (1024.0 * 1024.0 * 1024.0), 2),
             unit: "GB".to_string(),
             sensor_type: SystemSensorType::DiskTotal,
         });
