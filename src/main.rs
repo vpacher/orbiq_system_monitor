@@ -1,105 +1,27 @@
 mod config;
 mod homeassistant;
+mod mqtt_client;
 mod system_sensor;
 mod temperature_sensor;
 
-use clap::{Parser, Subcommand};
+use crate::mqtt_client::get_mqtt_client;
 use config::DaemonConfig;
 use homeassistant::{
     publish_discovery_config, publish_sensor_availability, publish_system_discovery_config,
     publish_system_sensor_availability, publish_system_state, publish_temperature_state,
     DeviceInfo,
 };
-use rumqttc::{AsyncClient, Event, MqttOptions, Packet};
+use rumqttc::{Event, Packet};
 use std::collections::HashSet;
 use std::time::Duration;
 use system_sensor::collect_system_stats;
 use temperature_sensor::collect_all_temperatures;
 use tokio::{signal, task, time};
 
-#[derive(Parser)]
-#[command(author, version, about, long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Commands>,
-
-    /// Configuration file path
-    #[arg(short, long)]
-    config: Option<String>,
-
-    /// MQTT broker address (overrides config file)
-    #[arg(long)]
-    mqtt_broker: Option<String>,
-
-    /// Device name (overrides config file)
-    #[arg(long)]
-    device_name: Option<String>,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Generate example configuration file
-    GenConfig {
-        /// Output path for the configuration file
-        #[arg(short, long, default_value = "/etc/temp-daemon/config.toml")]
-        output: String,
-    },
-    /// Run the daemon
-    Run,
-}
-
 #[tokio::main]
 async fn main() {
-    let cli = Cli::parse();
-
-    match &cli.command {
-        Some(Commands::GenConfig { output }) => {
-            // Create directory if it doesn't exist
-            if let Some(parent) = std::path::Path::new(output).parent() {
-                if let Err(e) = std::fs::create_dir_all(parent) {
-                    eprintln!("Failed to create directory {}: {}", parent.display(), e);
-                    std::process::exit(1);
-                }
-            }
-
-            match DaemonConfig::save_example(output) {
-                Ok(_) => println!("Example configuration saved to: {}", output),
-                Err(e) => {
-                    eprintln!("Failed to save configuration: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
-        Some(Commands::Run) | None => {
-            run_daemon(cli).await;
-        }
-    }
-}
-
-async fn run_daemon(cli: Cli) {
     // Load configuration
-    let mut config = if let Some(config_path) = cli.config {
-        match DaemonConfig::load_from_file(&config_path) {
-            Ok(config) => {
-                println!("Loaded configuration from: {}", config_path);
-                config
-            }
-            Err(e) => {
-                eprintln!("Failed to load config from {}: {}", config_path, e);
-                std::process::exit(1);
-            }
-        }
-    } else {
-        DaemonConfig::load_with_fallback()
-    };
-
-    // Apply CLI overrides
-    if let Some(broker) = cli.mqtt_broker {
-        config.mqtt.broker = broker;
-    }
-    if let Some(device_name) = cli.device_name {
-        config.device.name = device_name;
-    }
+    let config = DaemonConfig::load_with_fallback();
 
     println!(
         "Starting temperature daemon with device: {}",
@@ -107,24 +29,8 @@ async fn run_daemon(cli: Cli) {
     );
     println!("MQTT broker: {}:{}", config.mqtt.broker, config.mqtt.port);
 
-    // Setup MQTT with better settings for high message volume
-    let mut mqttoptions = MqttOptions::new(
-        &config.mqtt.client_id,
-        &config.mqtt.broker,
-        config.mqtt.port,
-    );
-    mqttoptions.set_keep_alive(Duration::from_secs(config.mqtt.keep_alive_secs));
-    
-    // Increase channel capacity and add auto-reconnect settings
-    mqttoptions.set_max_packet_size(10240, 10240);
-    mqttoptions.set_clean_session(false);
-    
-    if let (Some(username), Some(password)) = (&config.mqtt.username, &config.mqtt.password) {
-        mqttoptions.set_credentials(username, password);
-    }
-
     // Increase the eventloop capacity
-    let (client, mut eventloop) = AsyncClient::new(mqttoptions, 100);
+    let (client, mut eventloop) = get_mqtt_client(&config);
 
     // Clone config for the publish task before moving it
     let config_for_task = config.clone();
@@ -238,7 +144,8 @@ async fn run_daemon(cli: Cli) {
 
             // Publish availability for all sensors periodically (every 20 cycles to reduce message volume)
             cycle_counter += 1;
-            if cycle_counter % 20 == 0 {  // Every 20 cycles (every 10 minutes with 30-second intervals)
+            if cycle_counter % 20 == 0 {
+                // Every 20 cycles (every 10 minutes with 30-second intervals)
                 println!("Refreshing sensor availability status...");
                 for sensor in &temp_sensors {
                     if let Err(e) = publish_sensor_availability(

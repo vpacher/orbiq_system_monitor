@@ -11,12 +11,12 @@ mkdir -p releases
 
 # Build for x86_64 Linux (amd64)
 echo "Building for x86_64-unknown-linux-gnu (amd64)..."
-cross build --release --target x86_64-unknown-linux-gnu
+CROSS_CONTAINER_OPTS="--platform linux/amd64" cross build --release --target x86_64-unknown-linux-gnu
 cp "target/x86_64-unknown-linux-gnu/release/${PROJECT_NAME}" "releases/${PROJECT_NAME}-${VERSION}-amd64"
 
 # Build for aarch64 Linux (arm64/Raspberry Pi)
 echo "Building for aarch64-unknown-linux-gnu (aarch64)..."
-cross build --release --target aarch64-unknown-linux-gnu
+ CROSS_CONTAINER_OPTS="--platform linux/amd64" cross build --release --target aarch64-unknown-linux-gnu
 cp "target/aarch64-unknown-linux-gnu/release/${PROJECT_NAME}" "releases/${PROJECT_NAME}-${VERSION}-aarch64"
 
 # Cleanup old releases - keep only the last 3 versions

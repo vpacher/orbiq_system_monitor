@@ -121,22 +121,11 @@ impl DaemonConfig {
         default_config
     }
 
-    pub fn save_example<P: AsRef<Path>>(path: P) -> Result<(), ConfigError> {
-        let default_config = Self::default();
-        let toml_content = toml::to_string_pretty(&default_config)
-            .map_err(|e| ConfigError::Serialize(e))?;
-
-        fs::write(&path, toml_content)
-            .map_err(|e| ConfigError::FileWrite(path.as_ref().to_path_buf(), e))?;
-
-        Ok(())
-    }
 }
 
 #[derive(Debug)]
 pub enum ConfigError {
     FileRead(std::path::PathBuf, std::io::Error),
-    FileWrite(std::path::PathBuf, std::io::Error),
     Parse(toml::de::Error),
     Serialize(toml::ser::Error),
 }
@@ -145,7 +134,6 @@ impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ConfigError::FileRead(path, e) => write!(f, "Failed to read config file {}: {}", path.display(), e),
-            ConfigError::FileWrite(path, e) => write!(f, "Failed to write config file {}: {}", path.display(), e),
             ConfigError::Parse(e) => write!(f, "Failed to parse config: {}", e),
             ConfigError::Serialize(e) => write!(f, "Failed to serialize config: {}", e),
         }

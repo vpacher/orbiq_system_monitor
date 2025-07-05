@@ -3,7 +3,7 @@ Description=Temperature Daemon
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/temp_daemon
+ExecStart=/usr/bin/orbiq_system_monitor
 Restart=on-failure
 
 [Install]
