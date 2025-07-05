@@ -1,7 +1,6 @@
 use crate::mqtt_client::MqttPayload;
 use crate::system_sensor::{SystemSensor, SystemSensorType};
 use crate::temperature_sensor::TemperatureSensor;
-use rumqttc::{AsyncClient, QoS};
 use serde_json::json;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -189,34 +188,13 @@ pub fn sensor_availability(
     }
 }
 
-pub async fn publish_sensor_availability(
-    client: &AsyncClient,
-    sensor: &TemperatureSensor,
-    device_name: &str,
-    available: bool,
-) -> Result<(), rumqttc::ClientError> {
-    let availability_topic = format!(
-        "homeassistant/sensor/orbiq_{}/{}/availability",
-        device_name, sensor.name
-    );
-    let payload = if available { "online" } else { "offline" };
-
-    client
-        .publish(&availability_topic, QoS::AtLeastOnce, true, payload)
-        .await
-}
-
-pub async fn publish_system_discovery_config(
-    client: &AsyncClient,
+pub fn system_discovery_config(
     sensor: &SystemSensor,
     device_name: &str,
     device_info: &DeviceInfo,
-) -> Result<(), rumqttc::ClientError> {
+) -> MqttPayload {
     let unique_id = format!("orbiq_{}_{}", device_name, sensor.name);
     let object_id = format!("orbiq_{}_{}", device_name, sensor.name);
-
-    // Home Assistant discovery format with node_id support:
-    // homeassistant/{component}/{node_id}/{object_id}/config
     let config_topic = format!(
         "homeassistant/sensor/orbiq_{}/{}/config",
         device_name, sensor.name
@@ -229,7 +207,6 @@ pub async fn publish_system_discovery_config(
         "homeassistant/sensor/orbiq_{}/{}/availability",
         device_name, sensor.name
     );
-
     let device_class = match &sensor.sensor_type {
         SystemSensorType::CpuUsage
         | SystemSensorType::MemoryUsage
@@ -262,10 +239,11 @@ pub async fn publish_system_discovery_config(
     if let Some(class) = device_class {
         config["device_class"] = json!(class);
     }
-
-    client
-        .publish(config_topic, QoS::AtLeastOnce, true, config.to_string())
-        .await
+    MqttPayload {
+        topic: config_topic,
+        payload: config.to_string(),
+        retain: true,
+    }
 }
 
 pub fn system_state(sensor: &SystemSensor, device_name: &str) -> MqttPayload {
@@ -285,19 +263,20 @@ pub fn system_state(sensor: &SystemSensor, device_name: &str) -> MqttPayload {
     }
 }
 
-pub async fn publish_system_sensor_availability(
-    client: &AsyncClient,
+pub fn system_sensor_availability(
     sensor: &SystemSensor,
     device_name: &str,
     available: bool,
-) -> Result<(), rumqttc::ClientError> {
-    let availability_topic = format!(
-        "homeassistant/sensor/orbiq_{}/{}/availability",
-        device_name, sensor.name
-    );
+) -> MqttPayload {
+    let topic_data = Topic {
+        device_name: device_name.parse().unwrap(),
+        sensor_name: sensor.name.clone(),
+        sub_topic: "availability".to_string(),
+    };
     let payload = if available { "online" } else { "offline" };
-
-    client
-        .publish(&availability_topic, QoS::AtLeastOnce, true, payload)
-        .await
+    MqttPayload {
+        topic: topic(topic_data),
+        payload: payload.parse().unwrap(),
+        retain: true,
+    }
 }
