@@ -9,6 +9,14 @@ pub struct MqttPayload {
     pub(crate) retain: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct MqttSensorTopics {
+    pub(crate) name: String,
+    pub(crate) state: MqttPayload,
+    pub(crate) discovery: MqttPayload,
+    pub(crate) availability: MqttPayload,
+}
+
 pub fn get_mqtt_client(config: &DaemonConfig) -> (AsyncClient, EventLoop) {
     let mut mqttoptions = MqttOptions::new(
         &config.mqtt.client_id,

@@ -4,11 +4,13 @@ mod mqtt_client;
 mod system_sensor;
 mod temperature_sensor;
 
-use crate::homeassistant::{system_state, temperature_state};
-use crate::mqtt_client::{get_mqtt_client, publish};
+use crate::homeassistant::{
+    discovery_config, sensor_availability, system_state, temperature_state,
+};
+use crate::mqtt_client::{get_mqtt_client, publish, MqttSensorTopics};
 use config::DaemonConfig;
 use homeassistant::{
-    publish_discovery_config, publish_sensor_availability, publish_system_discovery_config,
+    publish_sensor_availability, publish_system_discovery_config,
     publish_system_sensor_availability, DeviceInfo,
 };
 use rumqttc::{Event, Packet};
@@ -47,32 +49,30 @@ async fn main() {
             let temp_sensors = collect_all_temperatures();
             let system_sensors = collect_system_stats();
 
+            let temp_payloads = temp_sensors
+                .iter()
+                .map(|sensor| MqttSensorTopics {
+                    name: sensor.name.clone(),
+                    state: temperature_state(sensor, &config_for_task.device.name),
+                    discovery: discovery_config(sensor, &config_for_task.device.name, &device_info),
+                    availability: sensor_availability(sensor, &config_for_task.device.name, true),
+                })
+                .collect::<Vec<_>>();
+
             // Handle temperature sensors
             if temp_sensors.is_empty() {
                 eprintln!("No temperature sensors found");
             } else {
-                for sensor in &temp_sensors {
-                    if !published_temp_sensors.contains(&sensor.name) {
-                        if let Err(e) = publish_discovery_config(
-                            &publish_client,
-                            sensor,
-                            &config_for_task.device.name,
-                            &device_info,
-                        )
-                        .await
-                        {
+                for payload in &temp_payloads {
+                    if !published_temp_sensors.contains(&payload.name) {
+                        // Discovery
+                        if let Err(e) = publish(&publish_client, payload.discovery.clone()).await {
                             eprintln!("Temperature discovery config error: {}", e);
                         } else {
-                            published_temp_sensors.insert(sensor.name.clone());
+                            published_temp_sensors.insert(payload.name.clone());
                             // Mark as available immediately after discovery
-                            time::sleep(Duration::from_millis(50)).await; // Small delay between messages
-                            if let Err(e) = publish_sensor_availability(
-                                &publish_client,
-                                sensor,
-                                &config_for_task.device.name,
-                                true,
-                            )
-                            .await
+                            if let Err(e) =
+                                publish(&publish_client, payload.availability.clone()).await
                             {
                                 eprintln!("Temperature availability publish error: {}", e);
                             }
@@ -80,12 +80,8 @@ async fn main() {
                         time::sleep(Duration::from_millis(config_for_task.discovery_delay_ms))
                             .await;
                     }
-                }
-
-                for sensor in &temp_sensors {
-                    let payload = temperature_state(sensor, &config_for_task.device.name);
-
-                    if let Err(e) = publish(&publish_client, payload).await {
+                    //publish state
+                    if let Err(e) = publish(&publish_client, payload.state.clone()).await {
                         eprintln!("Temperature state publish error: {}", e);
                     }
                 }
