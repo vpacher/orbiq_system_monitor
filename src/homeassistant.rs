@@ -1,3 +1,4 @@
+use crate::mqtt_client::MqttPayload;
 use crate::system_sensor::{SystemSensor, SystemSensorType};
 use crate::temperature_sensor::TemperatureSensor;
 use rumqttc::{AsyncClient, QoS};
@@ -137,11 +138,7 @@ pub async fn publish_discovery_config(
         .await
 }
 
-pub async fn publish_temperature_state(
-    client: &AsyncClient,
-    sensor: &TemperatureSensor,
-    device_name: &str,
-) -> Result<(), rumqttc::ClientError> {
+pub fn temperature_state(sensor: &TemperatureSensor, device_name: &str) -> MqttPayload {
     let state_topic = format!(
         "homeassistant/sensor/orbiq_{}/{}/state",
         device_name, sensor.name
@@ -149,10 +146,11 @@ pub async fn publish_temperature_state(
     let payload = json!({
         "temperature": sensor.temperature
     });
-
-    client
-        .publish(state_topic, QoS::AtLeastOnce, false, payload.to_string())
-        .await
+    MqttPayload {
+        topic: state_topic,
+        payload: payload.to_string(),
+        retain: false,
+    }
 }
 
 pub async fn publish_sensor_availability(
@@ -232,6 +230,21 @@ pub async fn publish_system_discovery_config(
     client
         .publish(config_topic, QoS::AtLeastOnce, true, config.to_string())
         .await
+}
+
+pub fn system_state(sensor: &SystemSensor, device_name: &str) -> MqttPayload {
+    let state_topic = format!(
+        "homeassistant/sensor/orbiq_{}/{}/state",
+        device_name, sensor.name
+    );
+    let payload = json!({
+        "value": sensor.value
+    });
+    MqttPayload {
+        topic: state_topic,
+        payload: payload.to_string(),
+        retain: false,
+    }
 }
 
 pub async fn publish_system_state(

@@ -82,7 +82,7 @@ impl DaemonConfig {
         // Always override these hardcoded values regardless of what's in the config file
         config.device.model = "OrbIQ System Monitor".to_string();
         config.device.manufacturer = "OrbIQ".to_string();
-        
+
         // Always derive client_id from device name
         config.mqtt.client_id = format!("orbiq-{}", config.device.name);
 
@@ -127,7 +127,6 @@ impl DaemonConfig {
 pub enum ConfigError {
     FileRead(std::path::PathBuf, std::io::Error),
     Parse(toml::de::Error),
-    Serialize(toml::ser::Error),
 }
 
 impl std::fmt::Display for ConfigError {
@@ -135,7 +134,6 @@ impl std::fmt::Display for ConfigError {
         match self {
             ConfigError::FileRead(path, e) => write!(f, "Failed to read config file {}: {}", path.display(), e),
             ConfigError::Parse(e) => write!(f, "Failed to parse config: {}", e),
-            ConfigError::Serialize(e) => write!(f, "Failed to serialize config: {}", e),
         }
     }
 }

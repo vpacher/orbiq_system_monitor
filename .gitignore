@@ -3,3 +3,4 @@
 /releases
 /my_config.toml
 .idea
+deploy.sh

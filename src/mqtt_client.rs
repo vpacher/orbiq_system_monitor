@@ -1,6 +1,13 @@
 use crate::config::DaemonConfig;
-use rumqttc::{AsyncClient, EventLoop, MqttOptions};
+use rumqttc::{AsyncClient, EventLoop, MqttOptions, QoS};
 use std::time::Duration;
+
+#[derive(Debug, Clone)]
+pub struct MqttPayload {
+    pub(crate) topic: String,
+    pub(crate) payload: String,
+    pub(crate) retain: bool,
+}
 
 pub fn get_mqtt_client(config: &DaemonConfig) -> (AsyncClient, EventLoop) {
     let mut mqttoptions = MqttOptions::new(
@@ -17,5 +24,11 @@ pub fn get_mqtt_client(config: &DaemonConfig) -> (AsyncClient, EventLoop) {
     if let (Some(username), Some(password)) = (&config.mqtt.username, &config.mqtt.password) {
         mqttoptions.set_credentials(username, password);
     }
+    println!("MQTT broker: {}:{}", config.mqtt.broker, config.mqtt.port);
     AsyncClient::new(mqttoptions, 100)
+}
+pub async fn publish(client: &AsyncClient, data:MqttPayload) -> Result<(), rumqttc::ClientError> {
+    client
+        .publish(data.topic, QoS::AtLeastOnce, data.retain, data.payload)
+        .await
 }

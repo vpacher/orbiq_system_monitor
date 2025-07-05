@@ -4,12 +4,12 @@ mod mqtt_client;
 mod system_sensor;
 mod temperature_sensor;
 
-use crate::mqtt_client::get_mqtt_client;
+use crate::homeassistant::{system_state, temperature_state};
+use crate::mqtt_client::{get_mqtt_client, publish};
 use config::DaemonConfig;
 use homeassistant::{
     publish_discovery_config, publish_sensor_availability, publish_system_discovery_config,
-    publish_system_sensor_availability, publish_system_state, publish_temperature_state,
-    DeviceInfo,
+    publish_system_sensor_availability, DeviceInfo,
 };
 use rumqttc::{Event, Packet};
 use std::collections::HashSet;
@@ -20,16 +20,13 @@ use tokio::{signal, task, time};
 
 #[tokio::main]
 async fn main() {
-    // Load configuration
     let config = DaemonConfig::load_with_fallback();
 
     println!(
         "Starting temperature daemon with device: {}",
         config.device.name
     );
-    println!("MQTT broker: {}:{}", config.mqtt.broker, config.mqtt.port);
 
-    // Increase the eventloop capacity
     let (client, mut eventloop) = get_mqtt_client(&config);
 
     // Clone config for the publish task before moving it
@@ -86,17 +83,11 @@ async fn main() {
                 }
 
                 for sensor in &temp_sensors {
-                    if let Err(e) = publish_temperature_state(
-                        &publish_client,
-                        sensor,
-                        &config_for_task.device.name,
-                    )
-                    .await
-                    {
+                    let payload = temperature_state(sensor, &config_for_task.device.name);
+
+                    if let Err(e) = publish(&publish_client, payload).await {
                         eprintln!("Temperature state publish error: {}", e);
                     }
-                    // Small delay between state publications
-                    time::sleep(Duration::from_millis(10)).await;
                 }
             }
 
@@ -132,14 +123,10 @@ async fn main() {
             }
 
             for sensor in &system_sensors {
-                if let Err(e) =
-                    publish_system_state(&publish_client, sensor, &config_for_task.device.name)
-                        .await
-                {
+                let payload = system_state(sensor, &config_for_task.device.name);
+                if let Err(e) = publish(&publish_client, payload).await {
                     eprintln!("System state publish error: {}", e);
                 }
-                // Small delay between state publications
-                time::sleep(Duration::from_millis(10)).await;
             }
 
             // Publish availability for all sensors periodically (every 20 cycles to reduce message volume)
