@@ -1,4 +1,5 @@
 use crate::config::DaemonConfig;
+use crate::fan_sensors::collect_all_fans;
 use crate::homeassistant::{
     system_discovery_config, system_sensor_availability, system_state, DeviceInfo,
 };
@@ -9,6 +10,7 @@ use crate::temperature_sensor::collect_all_temperatures;
 #[derive(Debug, Clone)]
 pub struct SystemSensor {
     pub name: String,
+    pub label: Option<String>,
     pub value: f64,
     pub unit: String,
     pub sensor_type: SystemSensorType,
@@ -45,8 +47,9 @@ impl SystemSensorType {
 pub fn get_all_sensors() -> Vec<SystemSensor> {
     let temp_sensors = collect_all_temperatures();
     let system_sensors = collect_system_stats();
+    let fan_sensors = collect_all_fans();
 
-    temp_sensors.into_iter().chain(system_sensors).collect()
+    temp_sensors.into_iter().chain(system_sensors).chain(fan_sensors).collect()
 }
 
 pub fn generate_payloads<'a>(

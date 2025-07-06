@@ -1,6 +1,6 @@
 [package]
 name = "orbiq_system_monitor"
-version = "0.1.43"
+version = "0.1.48"
 edition = "2024"
 description = "A lightweight system monitoring daemon with MQTT and Home Assistant support"
 

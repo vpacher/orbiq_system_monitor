@@ -19,6 +19,7 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
     let cpu_usage = system.global_cpu_usage();
     sensors.push(SystemSensor {
         name: "cpu_usage".to_string(),
+        label: None,
         value: round_to_decimals(cpu_usage as f64, 1),
         unit: "%".to_string(),
         sensor_type: SystemSensorType::CpuUsage,
@@ -36,6 +37,7 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
 
     sensors.push(SystemSensor {
         name: "memory_usage".to_string(),
+        label: None,
         value: memory_usage_percent,
         unit: "%".to_string(),
         sensor_type: SystemSensorType::MemoryUsage,
@@ -43,6 +45,7 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
 
     sensors.push(SystemSensor {
         name: "memory_used".to_string(),
+        label: None,
         value: round_to_decimals((used_memory as f64) / (1024.0 * 1024.0 * 1024.0), 2),
         unit: "GB".to_string(),
         sensor_type: SystemSensorType::MemoryUsed,
@@ -50,6 +53,7 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
 
     sensors.push(SystemSensor {
         name: "memory_total".to_string(),
+        label: None,
         value: round_to_decimals((total_memory as f64) / (1024.0 * 1024.0 * 1024.0), 2),
         unit: "GB".to_string(),
         sensor_type: SystemSensorType::MemoryTotal,
@@ -81,6 +85,7 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
 
         sensors.push(SystemSensor {
             name: format!("disk_usage_{}", name_suffix),
+            label: None,
             value: usage_percent,
             unit: "%".to_string(),
             sensor_type: SystemSensorType::DiskUsage,
@@ -88,6 +93,7 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
 
         sensors.push(SystemSensor {
             name: format!("disk_used_{}", name_suffix),
+            label: None,
             value: round_to_decimals((used_space as f64) / (1024.0 * 1024.0 * 1024.0), 2),
             unit: "GB".to_string(),
             sensor_type: SystemSensorType::DiskUsed,
@@ -95,6 +101,7 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
 
         sensors.push(SystemSensor {
             name: format!("disk_total_{}", name_suffix),
+            label: None,
             value: round_to_decimals((total_space as f64) / (1024.0 * 1024.0 * 1024.0), 2),
             unit: "GB".to_string(),
             sensor_type: SystemSensorType::DiskTotal,

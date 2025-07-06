@@ -61,6 +61,12 @@ fn generate_friendly_name(sensor_name: &str) -> String {
     }
 }
 
+fn generate_friendly_name_for_fan(sensor: &SystemSensor) -> String {
+    match &sensor.label {
+        Some(label) => label.to_string(),
+        None => format!("Fan {}", sensor.name),
+    }
+}
 // Generate friendly names for system sensors
 fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
     match &sensor.sensor_type {
@@ -92,7 +98,7 @@ fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
                 format!("Disk Total ({})", mount_name.to_uppercase())
             }
         }
-        SystemSensorType::Fan => sensor.name.to_string(),
+        SystemSensorType::Fan => generate_friendly_name_for_fan(sensor),
         SystemSensorType::Temperature => generate_friendly_name(&sensor.name),
     }
 }
@@ -120,7 +126,6 @@ pub fn system_state(sensor: &SystemSensor, device_name: &str) -> MqttPayload {
         retain: false,
     }
 }
-
 
 pub fn system_sensor_availability(
     sensor: &SystemSensor,

@@ -4,41 +4,43 @@ mod mqtt_client;
 mod sensors;
 mod system_sensor;
 mod temperature_sensor;
+mod fan_sensors;
+mod hwmon_devices;
 
-use crate::homeassistant::system_sensor_availability;
+use crate::homeassistant::{system_sensor_availability};
 use crate::mqtt_client::{get_mqtt_client, publish, publish_handler, MqttSensorTopics};
-use crate::sensors::{generate_payloads, get_all_sensors};
+use crate::sensors::{generate_payloads, get_all_sensors, SystemSensor};
 use config::DaemonConfig;
 use homeassistant::DeviceInfo;
-use rumqttc::{Event, Packet};
+use rumqttc::{AsyncClient, Event, EventLoop, Packet};
 use std::collections::HashSet;
 use std::time::Duration;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::{signal, task, time};
+use tokio::task::JoinHandle;
 
 #[tokio::main]
 async fn main() {
-    let config = DaemonConfig::load_with_fallback();
+    let config: DaemonConfig = DaemonConfig::load_with_fallback();
 
     println!(
         "Starting temperature daemon with device: {}",
         config.device.name
     );
 
-    let (client, mut eventloop) = get_mqtt_client(&config);
+    let (publish_client, mut eventloop): (AsyncClient, EventLoop) = get_mqtt_client(&config);
 
     // Spawn a task to publish temperatures and system stats
-    let publish_client = client;
-    let publish_task = task::spawn(async move {
+    let publish_task: JoinHandle<()> = task::spawn(async move {
         // Wait a bit for the connection to establish
         time::sleep(Duration::from_secs(5)).await;
 
         let mut published_sensors: HashSet<String> = HashSet::new();
-        let device_info = DeviceInfo::from_config(&config.device);
+        let device_info: DeviceInfo = DeviceInfo::from_config(&config.device);
         let mut cycle_counter = 0u32;
 
         loop {
-            let all_sensors = get_all_sensors();
+            let all_sensors: Vec<SystemSensor> = get_all_sensors();
             if all_sensors.is_empty() {
                 eprintln!("No sensors found");
             }
