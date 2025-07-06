@@ -1,6 +1,5 @@
 use crate::mqtt_client::MqttPayload;
-use crate::system_sensor::{SystemSensor, SystemSensorType};
-use crate::temperature_sensor::TemperatureSensor;
+use crate::sensors::{SystemSensor, SystemSensorType};
 use serde_json::json;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -93,54 +92,8 @@ fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
                 format!("Disk Total ({})", mount_name.to_uppercase())
             }
         }
-    }
-}
-pub fn discovery_config(
-    sensor: &TemperatureSensor,
-    device_name: &str,
-    device_info: &DeviceInfo,
-) -> MqttPayload {
-    let unique_id = format!("orbiq_{}_{}", device_name, sensor.name);
-    let object_id = format!("orbiq_{}_{}", device_name, sensor.name);
-
-    // Home Assistant discovery format with node_id support:
-    // homeassistant/{component}/{node_id}/{object_id}/config
-    let config_topic = format!(
-        "homeassistant/sensor/orbiq_{}/{}/config",
-        device_name, sensor.name
-    );
-    let state_topic = format!(
-        "homeassistant/sensor/orbiq_{}/{}/state",
-        device_name, sensor.name
-    );
-    let availability_topic = format!(
-        "homeassistant/sensor/orbiq_{}/{}/availability",
-        device_name, sensor.name
-    );
-
-    let friendly_name = generate_friendly_name(&sensor.name);
-
-    let config = json!({
-        "name": friendly_name,
-        "unique_id": unique_id,
-        "object_id": object_id,
-        "state_topic": state_topic,
-        "unit_of_measurement": "°C",
-        "device_class": "temperature",
-        "state_class": "measurement",
-        "value_template": "{{ value_json.temperature }}",
-        "availability": {
-            "topic": availability_topic,
-            "payload_available": "online",
-            "payload_not_available": "offline"
-        },
-        "device": device_info
-    });
-
-    MqttPayload {
-        topic: config_topic,
-        payload: config.to_string(),
-        retain: true,
+        SystemSensorType::Fan => sensor.name.to_string(),
+        SystemSensorType::Temperature => generate_friendly_name(&sensor.name),
     }
 }
 
@@ -151,14 +104,15 @@ fn topic(data: Topic) -> String {
     )
 }
 
-pub fn temperature_state(sensor: &TemperatureSensor, device_name: &str) -> MqttPayload {
+pub fn system_state(sensor: &SystemSensor, device_name: &str) -> MqttPayload {
     let topic_data = Topic {
         device_name: device_name.parse().unwrap(),
         sensor_name: sensor.name.clone(),
         sub_topic: "state".to_string(),
     };
+
     let payload = json!({
-        "temperature": sensor.temperature
+        "value": sensor.value
     });
     MqttPayload {
         topic: topic(topic_data),
@@ -166,8 +120,10 @@ pub fn temperature_state(sensor: &TemperatureSensor, device_name: &str) -> MqttP
         retain: false,
     }
 }
-pub fn sensor_availability(
-    sensor: &TemperatureSensor,
+
+
+pub fn system_sensor_availability(
+    sensor: &SystemSensor,
     device_name: &str,
     available: bool,
 ) -> MqttPayload {
@@ -176,14 +132,10 @@ pub fn sensor_availability(
         sensor_name: sensor.name.clone(),
         sub_topic: "availability".to_string(),
     };
-
+    let payload = if available { "online" } else { "offline" };
     MqttPayload {
         topic: topic(topic_data),
-        payload: if available {
-            "online".parse().unwrap()
-        } else {
-            "offline".parse().unwrap()
-        },
+        payload: payload.parse().unwrap(),
         retain: true,
     }
 }
@@ -215,6 +167,8 @@ pub fn system_discovery_config(
         | SystemSensorType::MemoryTotal
         | SystemSensorType::DiskUsed
         | SystemSensorType::DiskTotal => Some("data_size"),
+        SystemSensorType::Temperature => Some("temperature"),
+        SystemSensorType::Fan => None,
     };
 
     let friendly_name = generate_system_friendly_name(sensor);
@@ -242,41 +196,6 @@ pub fn system_discovery_config(
     MqttPayload {
         topic: config_topic,
         payload: config.to_string(),
-        retain: true,
-    }
-}
-
-pub fn system_state(sensor: &SystemSensor, device_name: &str) -> MqttPayload {
-    let topic_data = Topic {
-        device_name: device_name.parse().unwrap(),
-        sensor_name: sensor.name.clone(),
-        sub_topic: "state".to_string(),
-    };
-
-    let payload = json!({
-        "value": sensor.value
-    });
-    MqttPayload {
-        topic: topic(topic_data),
-        payload: payload.to_string(),
-        retain: false,
-    }
-}
-
-pub fn system_sensor_availability(
-    sensor: &SystemSensor,
-    device_name: &str,
-    available: bool,
-) -> MqttPayload {
-    let topic_data = Topic {
-        device_name: device_name.parse().unwrap(),
-        sensor_name: sensor.name.clone(),
-        sub_topic: "availability".to_string(),
-    };
-    let payload = if available { "online" } else { "offline" };
-    MqttPayload {
-        topic: topic(topic_data),
-        payload: payload.parse().unwrap(),
         retain: true,
     }
 }

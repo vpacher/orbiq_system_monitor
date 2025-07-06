@@ -1,4 +1,5 @@
 use sysinfo::{Disks, System};
+use crate::sensors::{SystemSensor, SystemSensorType};
 
 // Helper function to round to specified decimal places
 fn round_to_decimals(value: f64, decimals: u32) -> f64 {
@@ -6,38 +7,7 @@ fn round_to_decimals(value: f64, decimals: u32) -> f64 {
     (value * multiplier).round() / multiplier
 }
 
-#[derive(Debug, Clone)]
-pub struct SystemSensor {
-    pub name: String,
-    pub value: f64,
-    pub unit: String,
-    pub sensor_type: SystemSensorType,
-}
 
-#[derive(Debug, Clone)]
-pub enum SystemSensorType {
-    CpuUsage,
-    MemoryUsage,
-    DiskUsage,
-    MemoryUsed,
-    MemoryTotal,
-    DiskUsed,
-    DiskTotal,
-}
-
-impl SystemSensorType {
-    pub fn icon(&self) -> &str {
-        match self {
-            SystemSensorType::CpuUsage => "mdi:cpu-64-bit",
-            SystemSensorType::MemoryUsage
-            | SystemSensorType::MemoryUsed
-            | SystemSensorType::MemoryTotal => "mdi:memory",
-            SystemSensorType::DiskUsage
-            | SystemSensorType::DiskUsed
-            | SystemSensorType::DiskTotal => "mdi:harddisk",
-        }
-    }
-}
 
 pub fn collect_system_stats() -> Vec<SystemSensor> {
     let mut system = System::new_all();

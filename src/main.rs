@@ -1,21 +1,19 @@
 mod config;
 mod homeassistant;
 mod mqtt_client;
+mod sensors;
 mod system_sensor;
 mod temperature_sensor;
 
-use crate::homeassistant::{
-    discovery_config, sensor_availability, system_discovery_config, system_sensor_availability,
-    system_state, temperature_state,
-};
+use crate::homeassistant::system_sensor_availability;
 use crate::mqtt_client::{get_mqtt_client, publish, MqttSensorTopics};
+use crate::sensors::{generate_payloads, get_all_sensors};
 use config::DaemonConfig;
 use homeassistant::DeviceInfo;
 use rumqttc::{Event, Packet};
 use std::collections::HashSet;
 use std::time::Duration;
-use system_sensor::collect_system_stats;
-use temperature_sensor::collect_all_temperatures;
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::{signal, task, time};
 
 #[tokio::main]
@@ -28,70 +26,44 @@ async fn main() {
     );
 
     let (client, mut eventloop) = get_mqtt_client(&config);
-    
+
     // Spawn a task to publish temperatures and system stats
-    let publish_client = client.clone();
+    let publish_client = client;
     let publish_task = task::spawn(async move {
-        // Wait a bit for connection to establish
+        // Wait a bit for the connection to establish
         time::sleep(Duration::from_secs(5)).await;
 
-        let mut published_temp_sensors: HashSet<String> = HashSet::new();
+        let mut published_sensors: HashSet<String> = HashSet::new();
         let device_info = DeviceInfo::from_config(&config.device);
         let mut cycle_counter = 0u32;
 
         loop {
-            let temp_sensors = collect_all_temperatures();
-            let system_sensors = collect_system_stats();
-
-            let temp_payloads: Vec<MqttSensorTopics> = temp_sensors
-                .iter()
-                .map(|sensor| MqttSensorTopics {
-                    name: sensor.name.clone(),
-                    state: temperature_state(sensor, &config.device.name),
-                    discovery: discovery_config(sensor, &config.device.name, &device_info),
-                    availability: sensor_availability(sensor, &config.device.name, true),
-                })
-                .collect::<Vec<_>>();
-            
-            let system_payloads: Vec<MqttSensorTopics> = system_sensors
-                .iter()
-                .map(|sensor| MqttSensorTopics {
-                    name: sensor.name.clone(),
-                    state: system_state(sensor, &config.device.name),
-                    discovery: system_discovery_config(sensor, &config.device.name, &device_info),
-                    availability: system_sensor_availability(sensor, &config.device.name, true),
-                })
-                .collect::<Vec<_>>();
-
-            let all_payloads: Vec<MqttSensorTopics> =
-                temp_payloads.into_iter().chain(system_payloads).collect();
-
-            // Handle all payloads
-            if all_payloads.is_empty() {
+            let all_sensors = get_all_sensors();
+            if all_sensors.is_empty() {
                 eprintln!("No sensors found");
-            } else {
-                for payload in &all_payloads {
-                    if !published_temp_sensors.contains(&payload.name) {
-                        //publish Discovery
-                        if let Err(e) = publish(&publish_client, payload.discovery.clone()).await {
-                            eprintln!("Discovery config error: {}", e);
-                        } else {
-                            //publish availability
-                            published_temp_sensors.insert(payload.name.clone());
-                            // Mark as available immediately after discovery
-                            if let Err(e) =
-                                publish(&publish_client, payload.availability.clone()).await
-                            {
-                                eprintln!("Availability publish error: {}", e);
-                            }
+            }
+            let all_payloads: Vec<MqttSensorTopics> =
+                generate_payloads(&all_sensors, &config, &device_info).collect();
+            // Handle all payloads
+            for payload in &all_payloads {
+                if !published_sensors.contains(&payload.name) {
+                    //publish Discovery
+                    if let Err(e) = publish(&publish_client, payload.discovery.clone()).await {
+                        eprintln!("Discovery config error: {}", e);
+                    } else {
+                        //publish availability
+                        published_sensors.insert(payload.name.clone());
+                        // Mark as available immediately after discovery
+                        if let Err(e) = publish(&publish_client, payload.availability.clone()).await
+                        {
+                            eprintln!("Availability publish error: {}", e);
                         }
-                        time::sleep(Duration::from_millis(config.discovery_delay_ms))
-                            .await;
                     }
-                    //publish state
-                    if let Err(e) = publish(&publish_client, payload.state.clone()).await {
-                        eprintln!("State publish error: {}", e);
-                    }
+                    time::sleep(Duration::from_millis(config.discovery_delay_ms)).await;
+                }
+                //publish state
+                if let Err(e) = publish(&publish_client, payload.state.clone()).await {
+                    eprintln!("State publish error: {}", e);
                 }
             }
 
@@ -112,23 +84,13 @@ async fn main() {
             // Check if we should exit
             tokio::select! {
                 _ = time::sleep(Duration::from_secs(config.update_interval_secs)) => {},
-                _ = signal::ctrl_c() => {
+                _ = wait_for_sigterm() => {
                     println!("Received shutdown signal, marking sensors as offline...");
-                    let temp_sensors = collect_all_temperatures();
-                    for sensor in &temp_sensors {
-                        let payload = sensor_availability(sensor, &config.device.name, false);
-                        if let Err(e) = publish(&publish_client, payload).await {
-                            eprintln!("Failed to mark temperature sensor {} as offline: {}", sensor.name, e);
-                        }
-                        time::sleep(Duration::from_millis(50)).await;
-                    }
-                    let system_sensors = collect_system_stats();
-                    for sensor in &system_sensors {
+                    for sensor in &all_sensors {
                         let payload = system_sensor_availability(sensor, &config.device.name, false);
                         if let Err(e) = publish(&publish_client, payload).await {
-                            eprintln!("Failed to mark system sensor {} as offline: {}", sensor.name, e);
+                            eprintln!("Failed to mark sensor {} as offline: {}", sensor.name, e);
                         }
-                        time::sleep(Duration::from_millis(50)).await;
                     }
                     break;
                 }
@@ -163,5 +125,14 @@ async fn main() {
         _ = signal::ctrl_c() => {
             println!("Shutting down...");
         }
+        _ = wait_for_sigterm() => {
+            println!("Signal received, shutting down...");
+        }
+
     }
+}
+
+async fn wait_for_sigterm() {
+    let mut sigterm = signal(SignalKind::terminate()).expect("Failed to bind SIGTERM handler");
+    sigterm.recv().await;
 }

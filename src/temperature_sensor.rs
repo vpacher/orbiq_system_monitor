@@ -1,17 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use crate::sensors::SystemSensor;
+use crate::sensors::SystemSensorType::Temperature;
 
 const HWMON_BASE_PATH: &str = "/sys/class/hwmon";
 const TEMP_FILE_PREFIX: &str = "temp";
 const TEMP_FILE_SUFFIX: &str = "_input";
 const MILLIDEGREE_TO_CELSIUS: f32 = 1000.0;
-
-#[derive(Debug, Clone)]
-pub struct TemperatureSensor {
-    pub name: String,
-    pub temperature: f32,
-    pub file_path: PathBuf,
-}
 
 #[derive(Debug)]
 pub struct HwmonDevice {
@@ -19,7 +14,7 @@ pub struct HwmonDevice {
     pub name: String,
 }
 
-pub fn collect_all_temperatures() -> Vec<TemperatureSensor> {
+pub fn collect_all_temperatures() -> Vec<SystemSensor> {
     let mut sensors = Vec::new();
 
     match discover_hwmon_devices() {
@@ -65,19 +60,13 @@ fn read_device_name(hwmon_path: &Path) -> Option<String> {
         .map(|content| content.trim().to_string())
 }
 
-fn scan_device_temperatures(device: &HwmonDevice) -> Vec<TemperatureSensor> {
+fn scan_device_temperatures(device: &HwmonDevice) -> Vec<SystemSensor> {
     let mut sensors = Vec::new();
 
     match fs::read_dir(&device.path) {
         Ok(entries) => {
             for entry in entries.flatten() {
                 if let Some(sensor) = process_temperature_file(&entry.path(), device) {
-                    println!(
-                        "Found temperature: {} = {:.2}°C (from {})",
-                        sensor.name,
-                        sensor.temperature,
-                        sensor.file_path.display()
-                    );
                     sensors.push(sensor);
                 }
             }
@@ -94,7 +83,7 @@ fn scan_device_temperatures(device: &HwmonDevice) -> Vec<TemperatureSensor> {
     sensors
 }
 
-fn process_temperature_file(file_path: &Path, device: &HwmonDevice) -> Option<TemperatureSensor> {
+fn process_temperature_file(file_path: &Path, device: &HwmonDevice) -> Option<SystemSensor> {
     let filename = file_path.file_name()?.to_string_lossy();
 
     if !is_temperature_file(&filename) {
@@ -105,10 +94,11 @@ fn process_temperature_file(file_path: &Path, device: &HwmonDevice) -> Option<Te
     let temp_number = extract_temperature_number(&filename)?;
     let sensor_name = format!("{}_{}", device.name, temp_number);
 
-    Some(TemperatureSensor {
+    Some(SystemSensor {
         name: sensor_name,
-        temperature,
-        file_path: file_path.to_path_buf(),
+        value: temperature as f64,
+        unit: "°C".parse().unwrap(),
+        sensor_type: Temperature,
     })
 }
 
