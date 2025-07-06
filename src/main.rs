@@ -6,7 +6,7 @@ mod system_sensor;
 mod temperature_sensor;
 
 use crate::homeassistant::system_sensor_availability;
-use crate::mqtt_client::{get_mqtt_client, publish, MqttSensorTopics};
+use crate::mqtt_client::{get_mqtt_client, publish, publish_handler, MqttSensorTopics};
 use crate::sensors::{generate_payloads, get_all_sensors};
 use config::DaemonConfig;
 use homeassistant::DeviceInfo;
@@ -42,44 +42,22 @@ async fn main() {
             if all_sensors.is_empty() {
                 eprintln!("No sensors found");
             }
+
             let all_payloads: Vec<MqttSensorTopics> =
                 generate_payloads(&all_sensors, &config, &device_info).collect();
-            // Handle all payloads
+
             for payload in &all_payloads {
-                if !published_sensors.contains(&payload.name) {
-                    //publish Discovery
-                    if let Err(e) = publish(&publish_client, payload.discovery.clone()).await {
-                        eprintln!("Discovery config error: {}", e);
-                    } else {
-                        //publish availability
-                        published_sensors.insert(payload.name.clone());
-                        // Mark as available immediately after discovery
-                        if let Err(e) = publish(&publish_client, payload.availability.clone()).await
-                        {
-                            eprintln!("Availability publish error: {}", e);
-                        }
-                    }
-                    time::sleep(Duration::from_millis(config.discovery_delay_ms)).await;
-                }
-                //publish state
-                if let Err(e) = publish(&publish_client, payload.state.clone()).await {
-                    eprintln!("State publish error: {}", e);
-                }
+                publish_handler(
+                    &publish_client,
+                    &payload,
+                    &mut published_sensors,
+                    config.discovery_delay_ms,
+                    &mut cycle_counter,
+                )
+                .await;
             }
 
-            // Publish availability for all sensors periodically (every 20 cycles to reduce message volume)
-            cycle_counter += 1;
-            if cycle_counter % 20 == 0 {
-                // Every 20 cycles (every 10 minutes with 30-second intervals)
-                println!("Refreshing sensor availability status...");
-
-                for payload in &all_payloads {
-                    if let Err(e) = publish(&publish_client, payload.availability.clone()).await {
-                        eprintln!("Availability refresh error: {}", e);
-                    }
-                    time::sleep(Duration::from_millis(20)).await;
-                }
-            }
+            cycle_counter = cycle_counter.wrapping_add(1);
 
             // Check if we should exit
             tokio::select! {
