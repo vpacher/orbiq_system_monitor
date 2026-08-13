@@ -21,7 +21,7 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tokio::{signal, task, time};
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let config: DaemonConfig = DaemonConfig::load_with_fallback();
 

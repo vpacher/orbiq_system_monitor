@@ -1,6 +1,6 @@
 [package]
 name = "orbiq_system_monitor"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 description = "A lightweight system monitoring daemon with MQTT and Home Assistant support"
 
@@ -8,7 +8,7 @@ description = "A lightweight system monitoring daemon with MQTT and Home Assista
 strip = true
 
 [dependencies]
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "signal"] }
+tokio = { version = "1.53.1", features = ["rt", "macros", "signal"] }
 rumqttc = "0.25.1"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.4"
