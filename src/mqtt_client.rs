@@ -37,6 +37,7 @@ pub fn get_mqtt_client(config: &DaemonConfig) -> (AsyncClient, EventLoop) {
     println!("MQTT broker: {}:{}", config.mqtt.broker, config.mqtt.port);
     AsyncClient::new(mqttoptions, 100)
 }
+
 pub async fn publish(client: &AsyncClient, data: MqttPayload) -> Result<(), rumqttc::ClientError> {
     client
         .publish(data.topic, QoS::AtLeastOnce, data.retain, data.payload)
@@ -69,7 +70,6 @@ pub async fn publish_handler(
         eprintln!("State publish error: {}", e);
     }
     if *cycle_counter % 20 == 0 {
-        println!("Refreshing sensor availability status: {:?}", payload.availability);
         if let Err(e) = publish(&client, payload.availability.clone()).await {
             eprintln!("Availability refresh error: {}", e);
         }

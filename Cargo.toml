@@ -4,6 +4,9 @@ version = "0.2.2"
 edition = "2024"
 description = "A lightweight system monitoring daemon with MQTT and Home Assistant support"
 
+[profile.release]
+strip = true
+
 [dependencies]
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "signal"] }
 rumqttc = "0.25.1"

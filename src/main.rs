@@ -1,80 +1,64 @@
 mod config;
+mod fan_sensors;
 mod homeassistant;
+mod hwmon_devices;
 mod mqtt_client;
 mod sensors;
 mod system_sensor;
 mod temperature_sensor;
-mod fan_sensors;
-mod hwmon_devices;
 
-use crate::homeassistant::{system_sensor_availability};
+use crate::homeassistant::system_sensor_availability;
 use crate::mqtt_client::{get_mqtt_client, publish, publish_handler, MqttSensorTopics};
-use crate::sensors::{generate_payloads, get_all_sensors, SystemSensor};
+use crate::sensors::{generate_payload, get_all_sensors, SystemSensor};
 use config::DaemonConfig;
 use homeassistant::DeviceInfo;
 use rumqttc::{AsyncClient, Event, EventLoop, Packet};
 use std::collections::HashSet;
 use std::time::Duration;
+use time::sleep;
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::{signal, task, time};
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
+use tokio::{signal, task, time};
 
 #[tokio::main]
 async fn main() {
     let config: DaemonConfig = DaemonConfig::load_with_fallback();
 
     println!(
-        "Starting temperature daemon with device: {}",
+        "Starting temperature daemon for device: {}",
         config.device.name
     );
 
     let (publish_client, mut eventloop): (AsyncClient, EventLoop) = get_mqtt_client(&config);
 
+    //needed for the exit task
+    let finish_client = publish_client.clone();
+    let finish_config = config.clone();
+
     // Spawn a task to publish temperatures and system stats
     let publish_task: JoinHandle<()> = task::spawn(async move {
         // Wait a bit for the connection to establish
-        time::sleep(Duration::from_secs(5)).await;
-
+        sleep(Duration::from_secs(5)).await;
         let mut published_sensors: HashSet<String> = HashSet::new();
         let device_info: DeviceInfo = DeviceInfo::from_config(&config.device);
         let mut cycle_counter = 0u32;
 
         loop {
-            let all_sensors: Vec<SystemSensor> = get_all_sensors();
-            if all_sensors.is_empty() {
-                eprintln!("No sensors found");
-            }
-
-            let all_payloads: Vec<MqttSensorTopics> =
-                generate_payloads(&all_sensors, &config, &device_info).collect();
-
-            for payload in &all_payloads {
+            for s in get_all_sensors() {
+                let sensor_topics: MqttSensorTopics = generate_payload(&s, &config, &device_info);
                 publish_handler(
                     &publish_client,
-                    &payload,
+                    &sensor_topics,
                     &mut published_sensors,
-                    config.discovery_delay_ms,
+                    0,
                     &mut cycle_counter,
                 )
                 .await;
             }
 
             cycle_counter = cycle_counter.wrapping_add(1);
-
-            // Check if we should exit
-            tokio::select! {
-                _ = time::sleep(Duration::from_secs(config.update_interval_secs)) => {},
-                _ = wait_for_sigterm() => {
-                    println!("Received shutdown signal, marking sensors as offline...");
-                    for sensor in &all_sensors {
-                        let payload = system_sensor_availability(sensor, &config.device.name, false);
-                        if let Err(e) = publish(&publish_client, payload).await {
-                            eprintln!("Failed to mark sensor {} as offline: {}", sensor.name, e);
-                        }
-                    }
-                    break;
-                }
-            }
+            sleep(Duration::from_secs(config.update_interval_secs)).await;
         }
     });
 
@@ -102,13 +86,19 @@ async fn main() {
             }
         } => {},
         _ = publish_task => {},
-        _ = signal::ctrl_c() => {
-            println!("Shutting down...");
-        }
-        _ = wait_for_sigterm() => {
-            println!("Signal received, shutting down...");
-        }
+        _ = signal::ctrl_c()  => finish_task(&finish_client, &finish_config).await,
+        _ = wait_for_sigterm() => finish_task(&finish_client, &finish_config).await
 
+    }
+}
+
+async fn finish_task(finish_client: &AsyncClient, finish_config: &DaemonConfig) {
+    let all_sensors: Vec<SystemSensor> = get_all_sensors().collect();
+    for sensor in &all_sensors {
+        let payload = system_sensor_availability(sensor, &finish_config.device.name, false);
+        if let Err(e) = timeout(Duration::from_millis(20), publish(&finish_client, payload)).await {
+            eprintln!("Failed to mark sensor {} as offline: {}", sensor.name, e);
+        }
     }
 }
 

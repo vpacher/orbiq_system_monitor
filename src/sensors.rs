@@ -1,3 +1,5 @@
+use std::iter::Chain;
+use std::vec::IntoIter;
 use crate::config::DaemonConfig;
 use crate::fan_sensors::collect_all_fans;
 use crate::homeassistant::{
@@ -44,23 +46,26 @@ impl SystemSensorType {
         }
     }
 }
-pub fn get_all_sensors() -> Vec<SystemSensor> {
+pub fn get_all_sensors() -> Chain<Chain<IntoIter<SystemSensor>, IntoIter<SystemSensor>>, IntoIter<SystemSensor>> {
     let temp_sensors = collect_all_temperatures();
     let system_sensors = collect_system_stats();
     let fan_sensors = collect_all_fans();
 
-    temp_sensors.into_iter().chain(system_sensors).chain(fan_sensors).collect()
+    temp_sensors
+        .into_iter()
+        .chain(system_sensors)
+        .chain(fan_sensors)
 }
 
-pub fn generate_payloads<'a>(
-    sensors: &'a [SystemSensor],
-    config: &'a DaemonConfig,
-    device_info: &'a DeviceInfo,
-) -> impl Iterator<Item = MqttSensorTopics> + 'a {
-    sensors.iter().map(move |sensor| MqttSensorTopics {
+pub fn generate_payload(
+    sensor: &SystemSensor,
+    config: &DaemonConfig,
+    device_info: &DeviceInfo,
+) -> MqttSensorTopics {
+    MqttSensorTopics {
         name: sensor.name.clone(),
         state: system_state(sensor, &config.device.name),
         discovery: system_discovery_config(sensor, &config.device.name, device_info),
         availability: system_sensor_availability(sensor, &config.device.name, true),
-    })
+    }
 }

@@ -39,8 +39,8 @@ impl DeviceInfo {
 }
 
 // Generate friendly names for temperature sensors
-fn generate_friendly_name(sensor_name: &str) -> String {
-    match sensor_name {
+fn generate_friendly_name(sensor :&SystemSensor) -> String {
+    match sensor.name.as_str() {
         name if name.contains("k10temp") => "CPU Temperature".to_string(),
         name if name.contains("nouveau") => "GPU Temperature".to_string(),
         name if name.contains("nvme") => format!(
@@ -57,7 +57,8 @@ fn generate_friendly_name(sensor_name: &str) -> String {
         name if name.contains("asus") => "ASUS Sensor Temperature".to_string(),
         name if name.contains("iwlwifi") => "WiFi Module Temperature".to_string(),
         name if name.contains("thermal") => "Thermal Zone Temperature".to_string(),
-        _ => format!("{} Temperature", sensor_name.replace("_", " ")),
+        name if name.contains("nct6687") => sensor.label.clone().unwrap_or(name.replace("_", " ")),
+        _ => format!("{} Temperature", sensor.name.replace("_", " ")),
     }
 }
 
@@ -99,7 +100,7 @@ fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
             }
         }
         SystemSensorType::Fan => generate_friendly_name_for_fan(sensor),
-        SystemSensorType::Temperature => generate_friendly_name(&sensor.name),
+        SystemSensorType::Temperature => generate_friendly_name(sensor),
     }
 }
 
