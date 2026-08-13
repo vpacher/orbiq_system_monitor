@@ -151,6 +151,49 @@ pub fn system_sensor_availability(
     }
 }
 
+// Topic pattern used to subscribe for previously-published discovery configs on startup,
+// so they can be diffed against currently-detected sensors and stale ones removed.
+pub fn discovery_wildcard_topic(device_name: &str) -> String {
+    format!("homeassistant/sensor/orbiq_{}/+/config", device_name)
+}
+
+// Recovers the sensor name from a discovery config topic matching discovery_wildcard_topic.
+pub fn extract_discovered_sensor_name(topic_str: &str, device_name: &str) -> Option<String> {
+    let prefix = format!("homeassistant/sensor/orbiq_{}/", device_name);
+    topic_str
+        .strip_prefix(prefix.as_str())?
+        .strip_suffix("/config")
+        .map(str::to_string)
+}
+
+// An empty retained payload on the config topic tells Home Assistant to remove the entity.
+// The availability topic is cleared too so no stale retained state lingers on the broker.
+pub fn stale_sensor_removal_payloads(sensor_name: &str, device_name: &str) -> Vec<MqttPayload> {
+    let config_topic = topic(Topic {
+        device_name: device_name.to_string(),
+        sensor_name: sensor_name.to_string(),
+        sub_topic: "config".to_string(),
+    });
+    let availability_topic = topic(Topic {
+        device_name: device_name.to_string(),
+        sensor_name: sensor_name.to_string(),
+        sub_topic: "availability".to_string(),
+    });
+
+    vec![
+        MqttPayload {
+            topic: config_topic,
+            payload: String::new(),
+            retain: true,
+        },
+        MqttPayload {
+            topic: availability_topic,
+            payload: String::new(),
+            retain: true,
+        },
+    ]
+}
+
 pub fn system_discovery_config(
     sensor: &SystemSensor,
     device_name: &str,
@@ -210,5 +253,52 @@ pub fn system_discovery_config(
         topic: config_topic,
         payload: config.to_string(),
         retain: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_discovered_sensor_name_matches_config_topic() {
+        let config_topic = format!(
+            "homeassistant/sensor/orbiq_{}/{}/config",
+            "my-device", "cpu_usage"
+        );
+        assert_eq!(
+            extract_discovered_sensor_name(&config_topic, "my-device"),
+            Some("cpu_usage".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_discovered_sensor_name_rejects_other_topics() {
+        assert_eq!(
+            extract_discovered_sensor_name(
+                "homeassistant/sensor/orbiq_my-device/cpu_usage/state",
+                "my-device"
+            ),
+            None
+        );
+        assert_eq!(
+            extract_discovered_sensor_name(
+                "homeassistant/sensor/orbiq_other-device/cpu_usage/config",
+                "my-device"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn test_stale_sensor_removal_payloads() {
+        let payloads = stale_sensor_removal_payloads("cpu_usage", "my-device");
+        assert_eq!(payloads.len(), 2);
+        for payload in &payloads {
+            assert!(payload.payload.is_empty());
+            assert!(payload.retain);
+        }
+        assert!(payloads[0].topic.ends_with("/config"));
+        assert!(payloads[1].topic.ends_with("/availability"));
     }
 }

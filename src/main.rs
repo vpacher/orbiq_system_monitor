@@ -5,12 +5,14 @@ mod homeassistant;
 mod hwmon_devices;
 mod mqtt_client;
 mod sensors;
+mod stale_sensor_cleanup;
 mod system_sensor;
 mod temperature_sensor;
 
 use crate::homeassistant::system_sensor_availability;
 use crate::mqtt_client::{get_mqtt_client, publish, publish_handler, MqttSensorTopics};
 use crate::sensors::{generate_payload, get_all_sensors, SystemSensor};
+use crate::stale_sensor_cleanup::remove_stale_sensors;
 use config::DaemonConfig;
 use homeassistant::DeviceInfo;
 use rumqttc::{AsyncClient, Event, EventLoop, Packet};
@@ -31,6 +33,17 @@ async fn main() {
     );
 
     let (publish_client, mut eventloop): (AsyncClient, EventLoop) = get_mqtt_client(&config);
+
+    // Remove any sensors from Home Assistant that were published on a previous run
+    // but are no longer detected on this one (e.g. hardware was removed).
+    let current_sensor_names: HashSet<String> = get_all_sensors().map(|s| s.name).collect();
+    remove_stale_sensors(
+        &publish_client,
+        &mut eventloop,
+        &config.device.name,
+        &current_sensor_names,
+    )
+    .await;
 
     // Handle events and connection status with auto-reconnect
     tokio::select! {
