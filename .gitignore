@@ -4,3 +4,4 @@
 /my_config.toml
 .idea
 deploy.sh
+.DS_Store
