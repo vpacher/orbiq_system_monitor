@@ -1,7 +1,6 @@
-use std::iter::Chain;
-use std::vec::IntoIter;
 use crate::config::DaemonConfig;
 use crate::fan_sensors::collect_all_fans;
+use crate::gpu_sensors::collect_all_gpu_sensors;
 use crate::homeassistant::{
     system_discovery_config, system_sensor_availability, system_state, DeviceInfo,
 };
@@ -29,6 +28,8 @@ pub enum SystemSensorType {
     DiskTotal,
     Temperature,
     Fan,
+    GpuUsage,
+    GpuMemoryUsage,
 }
 
 impl SystemSensorType {
@@ -43,18 +44,22 @@ impl SystemSensorType {
             | SystemSensorType::DiskTotal => "mdi:harddisk",
             SystemSensorType::Temperature => "mdi:thermometer",
             SystemSensorType::Fan => "mdi:fan",
+            SystemSensorType::GpuUsage => "mdi:expansion-card-variant",
+            SystemSensorType::GpuMemoryUsage => "mdi:memory",
         }
     }
 }
-pub fn get_all_sensors() -> Chain<Chain<IntoIter<SystemSensor>, IntoIter<SystemSensor>>, IntoIter<SystemSensor>> {
+pub fn get_all_sensors() -> impl Iterator<Item = SystemSensor> {
     let temp_sensors = collect_all_temperatures();
     let system_sensors = collect_system_stats();
     let fan_sensors = collect_all_fans();
+    let gpu_sensors = collect_all_gpu_sensors();
 
     temp_sensors
         .into_iter()
         .chain(system_sensors)
         .chain(fan_sensors)
+        .chain(gpu_sensors)
 }
 
 pub fn generate_payload(

@@ -1,5 +1,6 @@
 mod config;
 mod fan_sensors;
+mod gpu_sensors;
 mod homeassistant;
 mod hwmon_devices;
 mod mqtt_client;
@@ -17,9 +18,8 @@ use std::collections::HashSet;
 use std::time::Duration;
 use time::sleep;
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::task::JoinHandle;
 use tokio::time::timeout;
-use tokio::{signal, task, time};
+use tokio::{signal, time};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -31,36 +31,6 @@ async fn main() {
     );
 
     let (publish_client, mut eventloop): (AsyncClient, EventLoop) = get_mqtt_client(&config);
-
-    //needed for the exit task
-    let finish_client = publish_client.clone();
-    let finish_config = config.clone();
-
-    // Spawn a task to publish temperatures and system stats
-    let publish_task: JoinHandle<()> = task::spawn(async move {
-        // Wait a bit for the connection to establish
-        sleep(Duration::from_secs(5)).await;
-        let mut published_sensors: HashSet<String> = HashSet::new();
-        let device_info: DeviceInfo = DeviceInfo::from_config(&config.device);
-        let mut cycle_counter = 0u32;
-
-        loop {
-            for s in get_all_sensors() {
-                let sensor_topics: MqttSensorTopics = generate_payload(&s, &config, &device_info);
-                publish_handler(
-                    &publish_client,
-                    &sensor_topics,
-                    &mut published_sensors,
-                    0,
-                    &mut cycle_counter,
-                )
-                .await;
-            }
-
-            cycle_counter = cycle_counter.wrapping_add(1);
-            sleep(Duration::from_secs(config.update_interval_secs)).await;
-        }
-    });
 
     // Handle events and connection status with auto-reconnect
     tokio::select! {
@@ -85,9 +55,32 @@ async fn main() {
                 }
             }
         } => {},
-        _ = publish_task => {},
-        _ = signal::ctrl_c()  => finish_task(&finish_client, &finish_config).await,
-        _ = wait_for_sigterm() => finish_task(&finish_client, &finish_config).await
+        _ = async {
+            // Wait a bit for the connection to establish
+            sleep(Duration::from_secs(5)).await;
+            let mut published_sensors: HashSet<String> = HashSet::new();
+            let device_info: DeviceInfo = DeviceInfo::from_config(&config.device);
+            let mut cycle_counter = 0u32;
+
+            loop {
+                for s in get_all_sensors() {
+                    let sensor_topics: MqttSensorTopics = generate_payload(&s, &config, &device_info);
+                    publish_handler(
+                        &publish_client,
+                        &sensor_topics,
+                        &mut published_sensors,
+                        0,
+                        &mut cycle_counter,
+                    )
+                    .await;
+                }
+
+                cycle_counter = cycle_counter.wrapping_add(1);
+                sleep(Duration::from_secs(config.update_interval_secs)).await;
+            }
+        } => {},
+        _ = signal::ctrl_c()  => finish_task(&publish_client, &config).await,
+        _ = wait_for_sigterm() => finish_task(&publish_client, &config).await
 
     }
 }

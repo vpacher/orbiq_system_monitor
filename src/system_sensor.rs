@@ -1,4 +1,5 @@
-use sysinfo::{Disks, System};
+use std::cell::RefCell;
+use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
 use crate::sensors::{SystemSensor, SystemSensorType};
 
 // Helper function to round to specified decimal places
@@ -7,16 +8,28 @@ fn round_to_decimals(value: f64, decimals: u32) -> f64 {
     (value * multiplier).round() / multiplier
 }
 
-
+thread_local! {
+    // Kept alive across calls (rather than recreated with System::new_all() each time) so
+    // CPU usage is computed from a real time delta between cycles instead of two back-to-back
+    // refreshes, and so we don't pay for a full process/disk/network enumeration every cycle.
+    static SYSTEM: RefCell<System> = RefCell::new(System::new_with_specifics(
+        RefreshKind::nothing()
+            .with_cpu(CpuRefreshKind::everything())
+            .with_memory(MemoryRefreshKind::everything()),
+    ));
+}
 
 pub fn collect_system_stats() -> Vec<SystemSensor> {
-    let mut system = System::new_all();
-    system.refresh_all();
-
     let mut sensors = Vec::new();
 
+    let (cpu_usage, total_memory, used_memory) = SYSTEM.with(|system| {
+        let mut system = system.borrow_mut();
+        system.refresh_cpu_usage();
+        system.refresh_memory();
+        (system.global_cpu_usage(), system.total_memory(), system.used_memory())
+    });
+
     // CPU usage (overall) - rounded to 1 decimal place
-    let cpu_usage = system.global_cpu_usage();
     sensors.push(SystemSensor {
         name: "cpu_usage".to_string(),
         label: None,
@@ -26,8 +39,6 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
     });
 
     // Memory usage - rounded to 1 decimal place
-    let total_memory = system.total_memory();
-    let used_memory = system.used_memory();
     let memory_usage_percent = if total_memory > 0 {
         let percent = (used_memory as f64 / total_memory as f64) * 100.0;
         round_to_decimals(percent, 1)

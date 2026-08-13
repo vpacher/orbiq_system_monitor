@@ -43,6 +43,7 @@ fn generate_friendly_name(sensor :&SystemSensor) -> String {
     match sensor.name.as_str() {
         name if name.contains("k10temp") => "CPU Temperature".to_string(),
         name if name.contains("nouveau") => "GPU Temperature".to_string(),
+        name if name.contains("nvidia") => sensor.label.clone().unwrap_or_else(|| "GPU Temperature".to_string()),
         name if name.contains("nvme") => format!(
             "NVMe {} Temperature",
             name.split('_').last().unwrap_or("Unknown")
@@ -101,6 +102,10 @@ fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
         }
         SystemSensorType::Fan => generate_friendly_name_for_fan(sensor),
         SystemSensorType::Temperature => generate_friendly_name(sensor),
+        SystemSensorType::GpuUsage => sensor.label.clone().unwrap_or_else(|| "GPU Usage".to_string()),
+        SystemSensorType::GpuMemoryUsage => {
+            sensor.label.clone().unwrap_or_else(|| "GPU Memory Usage".to_string())
+        }
     }
 }
 
@@ -168,7 +173,9 @@ pub fn system_discovery_config(
     let device_class = match &sensor.sensor_type {
         SystemSensorType::CpuUsage
         | SystemSensorType::MemoryUsage
-        | SystemSensorType::DiskUsage => None,
+        | SystemSensorType::DiskUsage
+        | SystemSensorType::GpuUsage
+        | SystemSensorType::GpuMemoryUsage => None,
         SystemSensorType::MemoryUsed
         | SystemSensorType::MemoryTotal
         | SystemSensorType::DiskUsed
