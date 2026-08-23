@@ -200,7 +200,7 @@ pub fn system_discovery_config(
     device_info: &DeviceInfo,
 ) -> MqttPayload {
     let unique_id = format!("orbiq_{}_{}", device_name, sensor.name);
-    let object_id = format!("orbiq_{}_{}", device_name, sensor.name);
+    let default_entity_id = format!("sensor.orbiq_{}_{}", device_name, sensor.name);
     let config_topic = format!(
         "homeassistant/sensor/orbiq_{}/{}/config",
         device_name, sensor.name
@@ -232,7 +232,7 @@ pub fn system_discovery_config(
     let mut config = json!({
         "name": friendly_name,
         "unique_id": unique_id,
-        "object_id": object_id,
+        "default_entity_id": default_entity_id,
         "state_topic": state_topic,
         "unit_of_measurement": sensor.unit,
         "state_class": "measurement",
@@ -288,6 +288,34 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn test_system_discovery_config_uses_default_entity_id_not_deprecated_object_id() {
+        let sensor = SystemSensor {
+            name: "cpu_usage".to_string(),
+            label: None,
+            value: 12.3,
+            unit: "%".to_string(),
+            sensor_type: SystemSensorType::CpuUsage,
+        };
+        let device_info = DeviceInfo {
+            identifiers: vec!["orbiq_my-device".to_string()],
+            name: "my-device".to_string(),
+            model: "OrbIQ System Monitor".to_string(),
+            manufacturer: "OrbIQ".to_string(),
+            sw_version: None,
+            hw_version: None,
+        };
+
+        let payload = system_discovery_config(&sensor, "my-device", &device_info);
+        let config: serde_json::Value = serde_json::from_str(&payload.payload).unwrap();
+
+        assert_eq!(config["unique_id"], "orbiq_my-device_cpu_usage");
+        assert_eq!(config["default_entity_id"], "sensor.orbiq_my-device_cpu_usage");
+        // The "object_id" key is deprecated (HA 2026.4+ ignores it for new entities,
+        // silently falling back to auto-slugging from "name") -- must not be sent.
+        assert!(config.get("object_id").is_none());
     }
 
     #[test]
