@@ -69,6 +69,13 @@ fn generate_friendly_name_for_fan(sensor: &SystemSensor) -> String {
         None => format!("Fan {}", sensor.name),
     }
 }
+
+fn generate_friendly_name_for_current(sensor: &SystemSensor) -> String {
+    match &sensor.label {
+        Some(label) => format!("{} Current", label),
+        None => "Current".to_string(),
+    }
+}
 // Generate friendly names for system sensors
 fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
     match &sensor.sensor_type {
@@ -101,6 +108,7 @@ fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
             }
         }
         SystemSensorType::Fan => generate_friendly_name_for_fan(sensor),
+        SystemSensorType::Current => generate_friendly_name_for_current(sensor),
         SystemSensorType::Temperature => generate_friendly_name(sensor),
         SystemSensorType::GpuUsage => sensor.label.clone().unwrap_or_else(|| "GPU Usage".to_string()),
         SystemSensorType::GpuMemoryUsage => {
@@ -225,6 +233,7 @@ pub fn system_discovery_config(
         | SystemSensorType::DiskTotal => Some("data_size"),
         SystemSensorType::Temperature => Some("temperature"),
         SystemSensorType::Fan => None,
+        SystemSensorType::Current => Some("current"),
     };
 
     let friendly_name = generate_system_friendly_name(sensor);

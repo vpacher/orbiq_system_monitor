@@ -1,4 +1,5 @@
 mod config;
+mod current_sensors;
 mod fan_sensors;
 mod gpu_sensors;
 mod homeassistant;

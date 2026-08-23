@@ -1,4 +1,5 @@
 use crate::config::DaemonConfig;
+use crate::current_sensors::collect_all_currents;
 use crate::fan_sensors::collect_all_fans;
 use crate::gpu_sensors::collect_all_gpu_sensors;
 use crate::homeassistant::{
@@ -28,6 +29,7 @@ pub enum SystemSensorType {
     DiskTotal,
     Temperature,
     Fan,
+    Current,
     GpuUsage,
     GpuMemoryUsage,
 }
@@ -44,6 +46,7 @@ impl SystemSensorType {
             | SystemSensorType::DiskTotal => "mdi:harddisk",
             SystemSensorType::Temperature => "mdi:thermometer",
             SystemSensorType::Fan => "mdi:fan",
+            SystemSensorType::Current => "mdi:current-dc",
             SystemSensorType::GpuUsage => "mdi:expansion-card-variant",
             SystemSensorType::GpuMemoryUsage => "mdi:memory",
         }
@@ -53,12 +56,14 @@ pub fn get_all_sensors() -> impl Iterator<Item = SystemSensor> {
     let temp_sensors = collect_all_temperatures();
     let system_sensors = collect_system_stats();
     let fan_sensors = collect_all_fans();
+    let current_sensors = collect_all_currents();
     let gpu_sensors = collect_all_gpu_sensors();
 
     temp_sensors
         .into_iter()
         .chain(system_sensors)
         .chain(fan_sensors)
+        .chain(current_sensors)
         .chain(gpu_sensors)
 }
 
