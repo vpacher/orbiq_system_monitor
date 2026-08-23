@@ -21,7 +21,7 @@ pub fn discover_hwmon_devices() -> Result<Vec<HwmonDevice>, std::io::Error> {
 
             devices.push(HwmonDevice {
                 path: hwmon_path,
-                name: device_name,
+                name: sanitize_name(&device_name),
             });
         }
     }
@@ -34,4 +34,39 @@ fn read_device_name(hwmon_path: &Path) -> Option<String> {
     fs::read_to_string(&name_file)
         .ok()
         .map(|content| content.trim().to_string())
+}
+
+/// hwmon device names come straight from the kernel (some drivers embed things
+/// like a network interface name, which can contain colons) and flow directly
+/// into MQTT topic segments and HA entity/unique IDs downstream. Replace
+/// anything outside [A-Za-z0-9_-] with '_' so a raw kernel string can never
+/// produce an invalid topic (e.g. "r8169_0_2a00:00" -> "r8169_0_2a00_00").
+fn sanitize_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_name_leaves_safe_names_untouched() {
+        assert_eq!(sanitize_name("nvme"), "nvme");
+        assert_eq!(sanitize_name("k10temp"), "k10temp");
+        assert_eq!(sanitize_name("nct6687"), "nct6687");
+    }
+
+    #[test]
+    fn test_sanitize_name_replaces_illegal_characters() {
+        assert_eq!(sanitize_name("r8169_0_2a00:00"), "r8169_0_2a00_00");
+        assert_eq!(sanitize_name("weird/name with spaces"), "weird_name_with_spaces");
+    }
 }
