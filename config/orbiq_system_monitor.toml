@@ -1,18 +1,12 @@
 # OrbIQ System Monitoring Configuration
 #
-# This is also the literal deploy-time template - the single source of
-# truth, not just a docs example. ~/src/configurations/proxmox/apply.sh
-# ships this exact file to every host running orbiq_system_monitor, and
-# fetch-secrets.sh there substitutes the __...__ placeholders below from
-# OpenBao (secret/shared/mqtt's "homelab" credential - no ACL on the
-# broker, so every consumer reuses one credential rather than getting its
-# own) before writing the result to /etc/orbiq_system_monitor/config.toml.
-# Add a new field here when adding a new config option to the daemon and
-# it's automatically what every host's config gets templated from - there
-# is no second copy of this file to remember to update.
+# Example configuration - copy to /etc/orbiq_system_monitor/config.toml
+# (or one of the other locations checked, see README) and fill in your
+# own broker/username/password/device name. The __LIKE_THIS__ values are
+# just placeholders marking what to fill in, not a required naming scheme.
 
 [mqtt]
-broker = "synology.pebbles.technology"
+broker = "__MQTT_BROKER__"
 port = 1883
 username = "__MQTT_USERNAME__"
 password = "__MQTT_PASSWORD__"
