@@ -6,7 +6,8 @@
 #
 # Gate (any failure stops the release): build-and-package.sh (clippy -D
 # warnings, unit tests, amd64 + arm64 cross builds, .debs), then
-# test-package.sh (install/upgrade/purge tests in a Debian container).
+# test-package.sh (install/upgrade/purge tests in a Debian container), then
+# test-tls.sh (TLS and mutual TLS against Mosquitto in a container).
 # Assets: both .debs, both raw binaries, SHA256SUMS (sha256sum -c format).
 set -euo pipefail
 
@@ -37,6 +38,7 @@ PREV_TAG=$(git tag -l --sort=-v:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' |
 # --- gate --------------------------------------------------------------------
 CROSS_CONTAINER_ENGINE="${CROSS_CONTAINER_ENGINE:-podman}" ./build-and-package.sh
 ./test-package.sh
+./test-tls.sh
 
 # --- assets ------------------------------------------------------------------
 rm -rf "$DIST"

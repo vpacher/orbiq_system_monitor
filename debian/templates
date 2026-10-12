@@ -9,11 +9,30 @@ Description: MQTT broker host name or IP address:
  Leave it empty to configure /etc/orbiq_system_monitor/config.toml by hand
  later. The service is not started without a broker.
 
+Template: orbiq-system-monitor/mqtt_tls
+Type: boolean
+Default: false
+Description: Connect to the broker with TLS?
+ Choose yes if the broker has a TLS listener (usually port 8883). The broker
+ certificate is checked against the system CA certificates, or against a CA
+ file you name in the next question.
+
 Template: orbiq-system-monitor/mqtt_port
 Type: string
 Default: 1883
 Description: MQTT broker port:
- The default MQTT port is 1883.
+ The default MQTT port is 1883, or 8883 with TLS.
+
+Template: orbiq-system-monitor/mqtt_ca_file
+Type: string
+Default:
+Description: CA certificate file for the broker (optional):
+ Path to a PEM file with the CA that signed the broker certificate, for
+ example a self-signed homelab CA. Leave it empty to use the system CA
+ certificates.
+ .
+ For client certificates (mutual TLS), set client_cert_file and
+ client_key_file in /etc/orbiq_system_monitor/config.toml.
 
 Template: orbiq-system-monitor/mqtt_port_invalid
 Type: error

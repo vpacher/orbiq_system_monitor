@@ -1,6 +1,6 @@
 [package]
 name = "orbiq_system_monitor"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 description = "A lightweight system monitoring daemon with MQTT and Home Assistant support"
 
@@ -14,6 +14,8 @@ serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.4"
 sysinfo = "0.39.6"
 serde_json = "1.0.151"
+# Same version rumqttc already uses; system CA store for TLS without a ca_file.
+rustls-native-certs = "0.8.4"
 
 [package.metadata.deb]
 maintainer = "Volker Pacher <volker.pacher@gmail.com>"

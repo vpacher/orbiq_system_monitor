@@ -17,6 +17,7 @@ running Home Assistant on that machine.
   name and starts the service. Upgrades never touch your config.
 - **Hardware sensors from the kernel.** Everything `hwmon` exposes (CPU, chipset, NVMe,
   drives, fans, currents), NVIDIA GPUs, and CPU frequency scaling state.
+- **TLS and mutual TLS** to the broker, with your own CA or the system CA certificates.
 - **Tidy in Home Assistant.** Sensors from removed hardware are deleted on the next start,
   and every sensor is marked unavailable when the daemon stops.
 
@@ -61,7 +62,9 @@ The install starts a short guided setup:
 | Question | Default |
 |----------|---------|
 | MQTT broker host name or IP | (empty: configure later) |
-| MQTT port | `1883` |
+| Connect with TLS? | no |
+| MQTT port | `1883`, or `8883` with TLS |
+| CA certificate file (only asked with TLS) | (empty: system CA certificates) |
 | MQTT user name | (empty: anonymous) |
 | MQTT password (only asked with a user name) | |
 | Device name (used in topics and entity IDs) | the host name |
@@ -138,6 +141,12 @@ username = "orbiq"        # optional
 password = "secret"       # optional
 keep_alive_secs = 30
 
+# TLS (optional)
+# tls = true                                    # usually with port = 8883
+# ca_file = "/etc/ssl/certs/homelab-ca.pem"     # CA of the broker; system CAs when unset
+# client_cert_file = "/etc/orbiq_system_monitor/client.crt"   # mutual TLS: both or neither
+# client_key_file = "/etc/orbiq_system_monitor/client.key"
+
 [device]
 name = "server-01"        # letters, digits, "-" and "_" only
 
@@ -147,6 +156,15 @@ update_interval_secs = 30
 # Delay between Home Assistant discovery messages on the first publish, in milliseconds
 discovery_delay_ms = 200
 ```
+
+### TLS
+
+With `tls = true` the broker certificate is verified against `ca_file` (PEM, may contain
+several certificates) or, without it, against the system CA certificates. The broker name in
+`broker` must match the certificate (a host name in the SAN, or an IP address SAN when you
+connect by IP). For mutual TLS, set `client_cert_file` and `client_key_file` (PEM; RSA, ECDSA
+or Ed25519 keys). A wrong path or a key that does not match the certificate stops the daemon
+with a clear message; a certificate the broker rejects shows up in the log as an MQTT error.
 
 ## Home Assistant
 
@@ -189,6 +207,10 @@ causes are a TOML syntax error in the config file or an unreachable broker.
 broker, and that discovery is enabled. `mosquitto_sub -v -t 'homeassistant/sensor/orbiq_#'`
 shows what OrbIQ publishes.
 
+**TLS: `invalid peer certificate: UnknownIssuer`.** The broker certificate is not signed by a
+CA OrbIQ trusts. Set `ca_file` to the CA that signed it. `NotValidForName` means the
+`broker` name does not match the certificate.
+
 **A temperature or fan is missing.** OrbIQ shows what the kernel exposes under
 `/sys/class/hwmon`. If `sensors` (lm-sensors) does not show it either, the hardware needs a
 driver (e.g. `nct6687` for some MSI boards). Fans are only published when they have a label.
@@ -205,6 +227,7 @@ cargo build --release                       # current platform
 ./build-releases.sh                         # clippy -D warnings + tests, then amd64 + arm64 cross builds
 ./package-deb.sh                            # .deb packages from the cross builds
 ./test-package.sh                           # package install/upgrade/purge tests in a Debian container
+./test-tls.sh                               # end-to-end TLS and mutual-TLS tests against Mosquitto in a container
 ./release.sh --dry-run                      # full gate, release assets and notes, no publishing
 ./release.sh                                # tag v<version>, GitHub release with SHA256SUMS
 ```
@@ -218,7 +241,8 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-If you change anything in `debian/`, also run `./test-package.sh`.
+If you change anything in `debian/`, also run `./test-package.sh`; for MQTT connection or TLS
+changes, `./test-tls.sh`.
 
 ## Support
 

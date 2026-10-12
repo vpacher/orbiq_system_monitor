@@ -1,5 +1,6 @@
 use crate::config::DaemonConfig;
-use rumqttc::{AsyncClient, EventLoop, MqttOptions, QoS};
+use crate::tls::{self, TlsError};
+use rumqttc::{AsyncClient, EventLoop, MqttOptions, QoS, Transport};
 use std::collections::HashSet;
 use std::time::Duration;
 use tokio::time;
@@ -19,7 +20,7 @@ pub struct MqttSensorTopics {
     pub(crate) availability: MqttPayload,
 }
 
-pub fn get_mqtt_client(config: &DaemonConfig) -> (AsyncClient, EventLoop) {
+pub fn get_mqtt_client(config: &DaemonConfig) -> Result<(AsyncClient, EventLoop), TlsError> {
     let mut mqttoptions = MqttOptions::new(
         &config.mqtt.client_id,
         &config.mqtt.broker,
@@ -34,8 +35,14 @@ pub fn get_mqtt_client(config: &DaemonConfig) -> (AsyncClient, EventLoop) {
     if let (Some(username), Some(password)) = (&config.mqtt.username, &config.mqtt.password) {
         mqttoptions.set_credentials(username, password);
     }
-    println!("MQTT broker: {}:{}", config.mqtt.broker, config.mqtt.port);
-    AsyncClient::new(mqttoptions, 100)
+    let scheme = if let Some(tls_config) = tls::client_config(&config.mqtt)? {
+        mqttoptions.set_transport(Transport::tls_with_config(tls_config.into()));
+        "mqtts"
+    } else {
+        "mqtt"
+    };
+    println!("MQTT broker: {scheme}://{}:{}", config.mqtt.broker, config.mqtt.port);
+    Ok(AsyncClient::new(mqttoptions, 100))
 }
 
 pub async fn publish(client: &AsyncClient, data: MqttPayload) -> Result<(), rumqttc::ClientError> {

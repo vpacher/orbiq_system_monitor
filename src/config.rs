@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const DEVICE_MODEL: &str = "OrbIQ System Monitor";
 pub const DEVICE_MANUFACTURER: &str = "OrbIQ";
@@ -15,6 +15,13 @@ pub struct MqttConfig {
     #[serde(skip)] // Don't serialize/deserialize client_id - it's auto-generated
     pub client_id: String,
     pub keep_alive_secs: u64,
+    /// Connect with TLS (usually port 8883).
+    pub tls: bool,
+    /// CA certificate(s) in PEM to verify the broker; system store when unset.
+    pub ca_file: Option<PathBuf>,
+    /// Client certificate and key in PEM for mutual TLS; both or neither.
+    pub client_cert_file: Option<PathBuf>,
+    pub client_key_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -47,6 +54,10 @@ impl Default for MqttConfig {
             password: None,
             client_id: "orbiq-default".to_string(), // Will be overridden
             keep_alive_secs: 30,
+            tls: false,
+            ca_file: None,
+            client_cert_file: None,
+            client_key_file: None,
         }
     }
 }
@@ -156,5 +167,21 @@ mod tests {
         assert_eq!(config.device.manufacturer, DEVICE_MANUFACTURER);
         assert_eq!(config.mqtt.broker, "broker.example");
         assert_eq!(config.update_interval_secs, 30);
+        assert!(!config.mqtt.tls, "TLS is off unless configured");
+    }
+
+    #[test]
+    fn tls_fields_parse() {
+        let toml = r#"
+            [mqtt]
+            broker = "broker.example"
+            port = 8883
+            tls = true
+            ca_file = "/etc/ssl/certs/my-ca.pem"
+        "#;
+        let config: DaemonConfig = toml::from_str(toml).unwrap();
+        assert!(config.mqtt.tls);
+        assert_eq!(config.mqtt.ca_file, Some(PathBuf::from("/etc/ssl/certs/my-ca.pem")));
+        assert!(config.mqtt.client_cert_file.is_none());
     }
 }

@@ -29,6 +29,10 @@ answer() {
     printf '%s' "$RET"
 }
 
+default_port() {
+    if [ "$(answer mqtt_tls)" = "true" ]; then echo 8883; else echo 1883; fi
+}
+
 valid_port() {
     case "$1" in
         ''|*[!0-9]*) return 1 ;;
@@ -48,17 +52,29 @@ if [ -z "$(answer mqtt_broker)" ]; then
     exit 0
 fi
 
+ask mqtt_tls || true
+if [ "$(answer mqtt_tls)" = "true" ]; then
+    db_fget "$PKG/mqtt_port" seen
+    if [ "$RET" = "false" ] && [ "$(answer mqtt_port)" = 1883 ]; then
+        db_set "$PKG/mqtt_port" 8883
+    fi
+fi
+
 # Validation loops are bounded: the noninteractive frontend reports every
 # question as displayed, so an invalid preseeded value would otherwise loop
 # forever. postinst falls back to a safe value (port 1883, sanitised name).
 for _attempt in 1 2 3; do
     ask mqtt_port || break
     # Empty means "keep the default"; text frontends store an empty answer as-is.
-    [ -z "$(answer mqtt_port)" ] && db_set "$PKG/mqtt_port" 1883
+    [ -z "$(answer mqtt_port)" ] && db_set "$PKG/mqtt_port" "$(default_port)"
     valid_port "$(answer mqtt_port)" && break
     db_input high "$PKG/mqtt_port_invalid" || true
     db_fset "$PKG/mqtt_port" seen false
 done
+
+if [ "$(answer mqtt_tls)" = "true" ]; then
+    ask mqtt_ca_file || true
+fi
 
 ask mqtt_username || true
 if [ -n "$(answer mqtt_username)" ]; then

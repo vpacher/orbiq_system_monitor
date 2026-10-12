@@ -90,11 +90,35 @@ check '[ -z "$(debconf-show orbiq-system-monitor 2>/dev/null)" ]' "debconf answe
 
 echo "7) interactive (teletype frontend, answers typed on stdin)"
 reset
-printf 'broker.lan\n\nalice\nsecret\n\nyes\n' | DEBIAN_FRONTEND=teletype dpkg -i /t/new.deb >/tmp/o 2>&1; rc=$?
+printf 'broker.lan\nno\n\nalice\nsecret\n\nyes\n' | DEBIAN_FRONTEND=teletype dpkg -i /t/new.deb >/tmp/o 2>&1; rc=$?
 check '[ $rc -eq 0 ]' "dpkg succeeds"
 check 'grep -q "broker = \"broker.lan\"" $C && grep -q "port = 1883" $C' "broker typed, port default 1883 kept"
 check 'grep -q "username = \"alice\"" $C && grep -q "password = \"secret\"" $C' "credentials typed"
 check 'grep -q "name = \"$(hostname -s | tr -c "A-Za-z0-9_\n-" _)\"" $C' "device name defaults to the hostname"
 grep -E "MQTT|Device|Start" /tmp/o | head -8 | sed 's/^/    prompt: /'
+
+echo "8) TLS preseeded: port defaults to 8883, CA file written"
+reset
+mkdir -p /usr/local/share/ca-certificates
+printf -- '-----BEGIN CERTIFICATE-----\n' > /usr/local/share/ca-certificates/homelab-ca.crt
+debconf-set-selections <<'EOF'
+orbiq-system-monitor orbiq-system-monitor/mqtt_broker string mqtt.example.lan
+orbiq-system-monitor orbiq-system-monitor/mqtt_tls boolean true
+orbiq-system-monitor orbiq-system-monitor/mqtt_ca_file string /usr/local/share/ca-certificates/homelab-ca.crt
+orbiq-system-monitor orbiq-system-monitor/enable_service boolean false
+EOF
+dpkg -i /t/new.deb >/tmp/o 2>&1; rc=$?
+check '[ $rc -eq 0 ]' "dpkg succeeds"
+check 'toml_ok $C' "config is valid TOML"
+check 'python3 -c "import tomllib; m=tomllib.load(open(\"$C\",\"rb\"))[\"mqtt\"]; assert m[\"tls\"] is True and m[\"port\"]==8883 and m[\"ca_file\"]==\"/usr/local/share/ca-certificates/homelab-ca.crt\", m"' "tls = true, port 8883, ca_file set"
+reset
+debconf-set-selections <<'EOF'
+orbiq-system-monitor orbiq-system-monitor/mqtt_broker string mqtt.example.lan
+orbiq-system-monitor orbiq-system-monitor/mqtt_tls boolean true
+orbiq-system-monitor orbiq-system-monitor/mqtt_ca_file string /does/not/exist.crt
+EOF
+dpkg -i /t/new.deb >/tmp/o 2>&1; rc=$?
+check '[ $rc -eq 0 ] && grep -q "does not exist" /tmp/o' "missing CA file: installs, but warns"
+check '! grep -q "^username" $C' "no credentials without a user name"
 
 echo "RESULT: $PASS passed, $FAIL failed"

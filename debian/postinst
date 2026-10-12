@@ -46,8 +46,12 @@ toml_string() {
 write_config() {
     username=$(answer mqtt_username)
     password=$(answer mqtt_password)
+    tls=$(answer mqtt_tls)
+    ca_file=$(answer mqtt_ca_file)
     port=$(answer mqtt_port)
-    valid_port "$port" || port=1883
+    if ! valid_port "$port"; then
+        if [ "$tls" = "true" ]; then port=8883; else port=1883; fi
+    fi
     device=$(answer device_name | tr -c 'A-Za-z0-9_-' '_')
     tmp=$(mktemp "$CONFIG_DIR/.config.toml.XXXXXX")
     # printf, not echo: dash's echo interprets backslashes in the values.
@@ -62,6 +66,13 @@ write_config() {
             printf 'password = %s\n' "$(toml_string "$password")"
         fi
         printf 'keep_alive_secs = 30\n'
+        if [ "$tls" = "true" ]; then
+            printf 'tls = true\n'
+            if [ -n "$ca_file" ]; then
+                printf 'ca_file = %s\n' "$(toml_string "$ca_file")"
+            fi
+            printf '# Mutual TLS: client_cert_file = "/path/client.crt", client_key_file = "/path/client.key"\n'
+        fi
         printf '\n[device]\n'
         printf 'name = %s\n' "$(toml_string "${device:-system-monitor}")"
         printf 'hw_version = "1.0"\n'
@@ -70,6 +81,9 @@ write_config() {
     } > "$tmp"
     chmod 600 "$tmp"
     mv -f "$tmp" "$CONFIG"
+    if [ "$tls" = "true" ] && [ -n "$ca_file" ] && [ ! -r "$ca_file" ]; then
+        say "warning: CA file $ca_file does not exist (yet); the service will not connect until it does"
+    fi
     # The password now lives only in the root-only config file.
     db_set "$PKG/mqtt_password" ""
 }

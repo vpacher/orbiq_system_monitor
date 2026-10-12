@@ -8,6 +8,7 @@ mod mqtt_client;
 mod sensors;
 mod stale_sensor_cleanup;
 mod system_sensor;
+mod tls;
 
 use crate::homeassistant::system_sensor_availability;
 use crate::mqtt_client::{get_mqtt_client, publish, publish_handler};
@@ -29,7 +30,14 @@ async fn main() {
     let config = DaemonConfig::load_with_fallback();
     println!("Starting temperature daemon for device: {}", config.device.name);
 
-    let (client, mut eventloop) = get_mqtt_client(&config);
+    let (client, mut eventloop) = match get_mqtt_client(&config) {
+        Ok(pair) => pair,
+        Err(e) => {
+            // A config error: restarting cannot fix it, so fail loudly.
+            eprintln!("MQTT TLS configuration error: {e}");
+            std::process::exit(2);
+        }
+    };
 
     // Remove any sensors from Home Assistant that were published on a previous run
     // but are no longer detected on this one (e.g. hardware was removed).
