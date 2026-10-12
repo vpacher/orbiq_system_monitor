@@ -49,8 +49,9 @@ Packages for `amd64` and `arm64` (Raspberry Pi OS 64-bit, Ubuntu, Debian, Proxmo
 with `SHA256SUMS`.
 
 ```bash
-VERSION=0.3.1
-ARCH=amd64   # or arm64
+VERSION=$(curl -fsSL https://api.github.com/repos/vpacher/orbiq_system_monitor/releases/latest \
+  | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+ARCH=$(dpkg --print-architecture)   # amd64 or arm64
 curl -LO "https://github.com/vpacher/orbiq_system_monitor/releases/download/v${VERSION}/orbiq_system_monitor_${VERSION}_${ARCH}.deb"
 curl -LO "https://github.com/vpacher/orbiq_system_monitor/releases/download/v${VERSION}/SHA256SUMS"
 sha256sum -c SHA256SUMS --ignore-missing
