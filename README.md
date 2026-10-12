@@ -1,89 +1,62 @@
 # OrbIQ System Monitor
 
-A lightweight, cross-platform system monitoring daemon that publishes system metrics to MQTT with automatic Home Assistant discovery support.
+A small Linux daemon that publishes hardware and system sensors to MQTT, with Home Assistant
+auto-discovery. One native binary, packaged as a `.deb` with a guided setup.
 
-## Features
+Built for servers, Proxmox hosts, NAS boxes and Raspberry Pis whose hardware sensors
+(temperatures, fans, currents, CPU frequency scaling) you want in Home Assistant, without
+running Home Assistant on that machine.
 
-- **System Metrics**: CPU usage, memory usage/total, disk usage/total for all mounted drives
-- **Temperature Monitoring**: Hardware temperature sensors (CPU, GPU, motherboard, etc.)
-- **Fans, Currents, GPU**: hwmon fan speeds and currents, NVIDIA GPU load/memory/fan via `nvidia-smi`
-- **CPU Frequency Scaling**: governor, energy-performance preference, boost and current/max frequency
-- **MQTT Integration**: Publishes metrics to MQTT broker with configurable intervals
-- **Home Assistant Auto-Discovery**: Automatically creates sensors in Home Assistant
-- **Cross-Platform**: Supports Linux (x86_64 and ARM64/aarch64)
-- **Lightweight**: Minimal resource usage with efficient data collection
-- **Systemd Integration**: Runs as a system service with proper lifecycle management
+## Why OrbIQ
 
-## Monitored Metrics
+- **No runtime to manage.** A single Rust binary (about 4–5 MB), no Python, no virtualenv,
+  no `pip` on an externally managed system.
+- **Light.** About 4–5 MB of RAM and well under 0.1 % CPU at the default 30 s interval
+  (measured on an x86 Proxmox host and a Raspberry Pi 5).
+- **Guided install.** `apt install ./orbiq...deb` asks for the broker, credentials and device
+  name and starts the service. Upgrades never touch your config.
+- **Hardware sensors from the kernel.** Everything `hwmon` exposes (CPU, chipset, NVMe,
+  drives, fans, currents), NVIDIA GPUs, and CPU frequency scaling state.
+- **Tidy in Home Assistant.** Sensors from removed hardware are deleted on the next start,
+  and every sensor is marked unavailable when the daemon stops.
 
-- **CPU Usage**: Overall CPU utilization percentage
-- **Memory Usage**: RAM usage percentage and absolute values (used/total in GB)
-- **Disk Usage**: Disk usage percentage and absolute values (used/total in GB) for all mounted filesystems
-- **Temperature Sensors**: Hardware temperature readings from available sensors (CPU, GPU, motherboard, etc.)
-- **Fan Sensors**: hwmon `fanN_input` in RPM (only fans that have a `fanN_label`)
-- **Current Sensors**: hwmon `currN_input` in mA
-- **NVIDIA GPU**: temperature, fan, usage and memory usage per GPU (when `nvidia-smi` is installed)
-- **CPU Frequency Scaling** (from `/sys/devices/system/cpu/cpufreq`, each only when the driver exposes it):
-  - `cpu_governor`: e.g. `performance`, `powersave`, `schedutil` (`mixed` if CPUs differ)
-  - `cpu_energy_preference`: EPP, e.g. `performance`, `balance_power`, `power` (amd-pstate-epp, intel_pstate)
-  - `cpu_boost`: `on` / `off` (`cpufreq/boost`, or the inverted `intel_pstate/no_turbo`)
-  - `cpu_max_frequency`: current frequency ceiling in MHz (highest `scaling_max_freq`)
-  - `cpu_frequency`: average current frequency across all CPUs in MHz
+## Sensors
 
-# Installation
+| Group | Sensors | Source |
+|-------|---------|--------|
+| System | CPU usage, memory usage/used/total, disk usage/used/total per mount | `sysinfo` |
+| Temperatures | every `tempN_input` (CPU, chipset, NVMe, drives, Wi-Fi, ...) | `/sys/class/hwmon` |
+| Fans | every `fanN_input` that has a `fanN_label`, in RPM | `/sys/class/hwmon` |
+| Currents | every `currN_input`, in mA | `/sys/class/hwmon` |
+| NVIDIA GPU | temperature, fan, usage, memory usage per GPU | `nvidia-smi` (if installed) |
+| CPU frequency scaling | governor, energy-performance preference (EPP), boost, max and current frequency | `/sys/devices/system/cpu/cpufreq` |
 
-## Option 1: Debian Package (Recommended)
+Each sensor only appears when the machine exposes it. CPU frequency scaling details:
 
-Download the appropriate `.deb` package for your architecture from the [releases page](https://github.com/your-repo/releases):
-bash
-### For x86_64/AMD64 systems
-sudo dpkg -i orbiq_system_monitor_VERSION_amd64.deb
-### For ARM64/aarch64 systems (Raspberry Pi, etc.)
-sudo dpkg -i orbiq_system_monitor_VERSION_arm64.deb
+- `cpu_governor`: e.g. `performance`, `powersave`, `schedutil` (`mixed` if CPUs differ)
+- `cpu_energy_preference`: e.g. `performance`, `balance_power`, `power` (amd-pstate-epp, intel_pstate)
+- `cpu_boost`: `on` / `off` (`cpufreq/boost`, or the inverted `intel_pstate/no_turbo`)
+- `cpu_max_frequency`: current frequency ceiling in MHz (highest `scaling_max_freq`)
+- `cpu_frequency`: average current frequency of all CPUs in MHz
 
-## Option 2: Manual Installation
+## Installation
 
-1. Download the binary for your architecture from the releases page
-2. Copy to `/usr/bin/orbiq_system_monitor`
-3. Create configuration directory: `sudo mkdir -p /etc/orbiq_system_monitor`
-4. Copy `config/orbiq_system_monitor.toml` to `/etc/orbiq_system_monitor/config.toml` and `chmod 600` it (it holds the MQTT password)
-5. Create and enable the systemd service (see example service file below)
+### Debian package (recommended)
 
-## Configuration
+Packages for `amd64` and `arm64` (Raspberry Pi OS 64-bit, Ubuntu, Debian, Proxmox) are on the
+[releases page](https://github.com/vpacher/orbiq_system_monitor/releases/latest), together
+with `SHA256SUMS`.
 
-The service looks for configuration files in the following order:
+```bash
+VERSION=0.3.1
+ARCH=amd64   # or arm64
+curl -LO "https://github.com/vpacher/orbiq_system_monitor/releases/download/v${VERSION}/orbiq_system_monitor_${VERSION}_${ARCH}.deb"
+curl -LO "https://github.com/vpacher/orbiq_system_monitor/releases/download/v${VERSION}/SHA256SUMS"
+sha256sum -c SHA256SUMS --ignore-missing
+sudo apt install "./orbiq_system_monitor_${VERSION}_${ARCH}.deb"
+```
 
-1. `/etc/orbiq_system_monitor/config.toml`
-2. `/etc/orbiq/config.toml`
-3. `./orbiq_system_monitor.toml`
-4. `./config.toml`
-
-### Configuration File Example
-toml
-#### OrbIQ System Monitoring Configuration
-[mqtt] broker = "your-mqtt-broker.local" port = 1883 username = "your_mqtt_username" password = "your_mqtt_password" keep_alive_secs = 30
-[device] name = "server-01"
-#### Update interval in seconds
-update_interval_secs = 30
-#### Delay between discovery messages in milliseconds
-discovery_delay_ms = 200
-
-### Configuration Options
-
-- **mqtt.broker**: MQTT broker hostname or IP address
-- **mqtt.port**: MQTT broker port (default: 1883)
-- **mqtt.username**: MQTT username (optional)
-- **mqtt.password**: MQTT password (optional)
-- **mqtt.keep_alive_secs**: MQTT keep-alive interval
-- **device.name**: Unique device name (used in MQTT topics and Home Assistant entity names)
-- **update_interval_secs**: How often to collect and publish metrics
-- **discovery_delay_ms**: Delay between Home Assistant discovery messages
-
-## Usage
-
-### First-time Setup
-
-Installing the `.deb` starts a short guided setup (debconf):
+The install starts a short guided setup:
 
 | Question | Default |
 |----------|---------|
@@ -94,15 +67,15 @@ Installing the `.deb` starts a short guided setup (debconf):
 | Device name (used in topics and entity IDs) | the host name |
 | Start now and on every boot? | yes |
 
-The answers are written to `/etc/orbiq_system_monitor/config.toml` (mode `600`, root only).
-The password is not kept in the debconf database.
+The answers go to `/etc/orbiq_system_monitor/config.toml` (mode `600`, root only). The
+password is not kept in the debconf database.
 
-- **Change the answers later:** `sudo dpkg-reconfigure orbiq-system-monitor`. This only
-  asks again while the config file is missing or still the shipped example; a filled-in
-  config is never overwritten. To start over, remove the config file first.
-- **Upgrades** never ask questions and never touch an existing config. A running service
-  is restarted; a stopped or disabled one stays as it is.
-- **Configure by hand instead:** leave the broker empty, then
+- **Change the answers later:** `sudo dpkg-reconfigure orbiq-system-monitor`. This asks again
+  only while the config file is missing or still the shipped example; a filled-in config is
+  never overwritten. To start over, remove the config file first.
+- **Upgrades** never ask questions and never touch an existing config. A running service is
+  restarted; a stopped or disabled one stays as it is.
+- **Configure by hand instead:** leave the broker empty, then:
   ```bash
   sudo cp /usr/share/doc/orbiq-system-monitor/examples/config.toml /etc/orbiq_system_monitor/config.toml
   sudo chmod 600 /etc/orbiq_system_monitor/config.toml
@@ -120,116 +93,139 @@ The password is not kept in the debconf database.
   orbiq-system-monitor orbiq-system-monitor/device_name string server-01
   orbiq-system-monitor orbiq-system-monitor/enable_service boolean true
   EOF
-  sudo DEBIAN_FRONTEND=noninteractive dpkg -i orbiq_system_monitor_VERSION_amd64.deb
+  sudo DEBIAN_FRONTEND=noninteractive apt install ./orbiq_system_monitor_VERSION_amd64.deb
   ```
-- **Purge** (`dpkg --purge orbiq-system-monitor`) removes the config directory and the
-  stored answers.
+- **Remove completely:** `sudo apt purge orbiq-system-monitor` removes the config directory
+  and the stored answers.
 
-### Service Management
-bash
-# Check service status
+### Manual installation (any Linux with systemd)
+
+1. Download `orbiq_system_monitor-VERSION-linux-amd64` (or `-linux-arm64`) from the releases
+   page and install it as `/usr/bin/orbiq_system_monitor` (`chmod 755`).
+2. Create `/etc/orbiq_system_monitor/config.toml` (see [Configuration](#configuration)) and
+   `chmod 600` it: it holds the MQTT password.
+3. Create `/etc/systemd/system/orbiq_system_monitor.service`:
+   ```ini
+   [Unit]
+   Description=OrbIQ System Monitor (system sensors to MQTT / Home Assistant)
+   Wants=network-online.target
+   After=network-online.target
+
+   [Service]
+   ExecStart=/usr/bin/orbiq_system_monitor
+   Restart=on-failure
+   RestartSec=10
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+4. `sudo systemctl daemon-reload && sudo systemctl enable --now orbiq_system_monitor`
+
+## Configuration
+
+The daemon reads the first file that exists:
+
+1. `/etc/orbiq_system_monitor/config.toml`
+2. `/etc/orbiq/config.toml`
+3. `./orbiq_system_monitor.toml`
+4. `./config.toml`
+
+```toml
+[mqtt]
+broker = "mqtt.example.lan"
+port = 1883
+username = "orbiq"        # optional
+password = "secret"       # optional
+keep_alive_secs = 30
+
+[device]
+name = "server-01"        # letters, digits, "-" and "_" only
+
+# Seconds between two sensor updates
+update_interval_secs = 30
+
+# Delay between Home Assistant discovery messages on the first publish, in milliseconds
+discovery_delay_ms = 200
+```
+
+## Home Assistant
+
+Sensors appear automatically when:
+
+1. the MQTT integration is set up in Home Assistant,
+2. Home Assistant and OrbIQ use the same broker,
+3. MQTT discovery is enabled (the default).
+
+Each machine becomes one device, `orbiq_<device name>`, with entities such as
+`sensor.orbiq_server_01_cpu_usage`, `sensor.orbiq_server_01_k10temp_1` or
+`sensor.orbiq_server_01_cpu_governor`.
+
+### MQTT topics
+
+| Topic | Payload |
+|-------|---------|
+| `homeassistant/sensor/orbiq_<device>/<sensor>/config` | discovery config (retained) |
+| `homeassistant/sensor/orbiq_<device>/<sensor>/state` | `{"value": <number or "text">}` |
+| `homeassistant/sensor/orbiq_<device>/<sensor>/availability` | `online` / `offline` (retained) |
+
+On start, sensors that were published by an earlier run but no longer exist (e.g. a removed
+disk or fan) are removed from Home Assistant. On shutdown (SIGTERM, Ctrl-C) every sensor is
+marked `offline` before the daemon disconnects.
+
+## Service management
+
+```bash
 sudo systemctl status orbiq_system_monitor
-# View logs
 sudo journalctl -u orbiq_system_monitor -f
-# Restart service
 sudo systemctl restart orbiq_system_monitor
-# Stop service
-sudo systemctl stop orbiq_system_monitor
-
-## Home Assistant Integration
-
-The service automatically publishes Home Assistant discovery messages, so sensors will appear automatically in your Home Assistant instance if:
-
-1. MQTT integration is configured in Home Assistant
-2. The MQTT broker is accessible from both the monitor and Home Assistant
-3. Home Assistant discovery is enabled (default)
-
-### MQTT Topics
-
-The service publishes to the following topic structure:
-
-- **State topics**: `homeassistant/sensor/orbiq_{device_name}/{sensor_name}/state`, payload `{"value": <number or "text">}`
-- **Availability topics**: `homeassistant/sensor/orbiq_{device_name}/{sensor_name}/availability` (`online` / `offline`, retained)
-- **Discovery topics**: `homeassistant/sensor/orbiq_{device_name}/{sensor_name}/config` (retained)
-
-On shutdown (SIGTERM / Ctrl-C) every sensor is marked `offline` before the daemon disconnects.
-
-### Example Sensors in Home Assistant
-
-For a device named "server-01", you'll see sensors like:
-
-- `sensor.orbiq_server_01_cpu_usage`
-- `sensor.orbiq_server_01_memory_usage`
-- `sensor.orbiq_server_01_memory_used`
-- `sensor.orbiq_server_01_memory_total`
-- `sensor.orbiq_server_01_disk_usage_root`
-- `sensor.orbiq_server_01_disk_used_root`
-- `sensor.orbiq_server_01_disk_total_root`
-- `sensor.orbiq_server_01_cpu_governor`
-- `sensor.orbiq_server_01_cpu_max_frequency`
-
-## Building from Source
-
-### Prerequisites
-
-- Rust toolchain
-- `cross` for cross-compilation (optional)
-
-### Build Commands
-bash
-# Build for current platform
-cargo build --release
-# Cross-compile for Linux x86_64
-cross build --release --target x86_64-unknown-linux-gnu
-# Cross-compile for Linux ARM64
-cross build --release --target aarch64-unknown-linux-gnu
-# Build all targets and create releases
-# (runs `cargo clippy -- -D warnings` and `cargo test` first; any failure stops the build)
-./build-releases.sh
-# Create Debian packages
-./package-deb.sh
-# Test the package scripts (install, preseed, upgrades, purge, interactive setup)
-# in a debian:bookworm container; needs podman or CONTAINER_ENGINE=docker
-./test-package.sh
-# Publish a GitHub release for the version in Cargo.toml (tag v<version>):
-# full gate (clippy, tests, cross builds, package tests), then .debs, raw
-# binaries and SHA256SUMS. --dry-run stops before tagging and shows the notes.
-./release.sh --dry-run
-./release.sh
-
-## Systemd Service File
-ini [Unit] Description=OrbIQ System Monitor After=network.target Wants=network.target
-[Service] Type=simple ExecStart=/usr/bin/orbiq_system_monitor Restart=always RestartSec=10 User=root Group=root
-[Install] WantedBy=multi-user.target
-
-
-If installing manually, create `/etc/systemd/system/orbiq_system_monitor.service`:
+```
 
 ## Troubleshooting
 
-### Service won't start
-1. Check configuration file syntax: `toml` format validation
-2. Verify MQTT broker connectivity
-3. Check logs: `sudo journalctl -u orbiq_system_monitor -f`
+**The service does not start.** Check the log (`journalctl -u orbiq_system_monitor`). Typical
+causes are a TOML syntax error in the config file or an unreachable broker.
 
-### Sensors not appearing in Home Assistant
-1. Verify MQTT integration is working in Home Assistant
-2. Check MQTT broker logs for incoming messages
-3. Ensure Home Assistant discovery is enabled
-4. Check that the device name doesn't contain invalid characters
+**No sensors in Home Assistant.** Check that the MQTT integration works and uses the same
+broker, and that discovery is enabled. `mosquitto_sub -v -t 'homeassistant/sensor/orbiq_#'`
+shows what OrbIQ publishes.
 
-### High resource usage
-1. Increase `update_interval_secs` to reduce collection frequency
-2. Increase `discovery_delay_ms` if publishing too quickly
+**A temperature or fan is missing.** OrbIQ shows what the kernel exposes under
+`/sys/class/hwmon`. If `sensors` (lm-sensors) does not show it either, the hardware needs a
+driver (e.g. `nct6687` for some MSI boards). Fans are only published when they have a label.
 
-## License
+**Inside a VM or container** you only see the guest's virtual hardware. Install OrbIQ on the
+host (e.g. the Proxmox node) to get the real sensors.
 
-[Add your license here]
+## Building from source
+
+Requirements: a Rust toolchain; for cross builds `cross` with podman or Docker.
+
+```bash
+cargo build --release                       # current platform
+./build-releases.sh                         # clippy -D warnings + tests, then amd64 + arm64 cross builds
+./package-deb.sh                            # .deb packages from the cross builds
+./test-package.sh                           # package install/upgrade/purge tests in a Debian container
+./release.sh --dry-run                      # full gate, release assets and notes, no publishing
+./release.sh                                # tag v<version>, GitHub release with SHA256SUMS
+```
 
 ## Contributing
 
-[Add contribution guidelines here]
+Issues and pull requests are welcome. Before a pull request, please run:
+
+```bash
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+If you change anything in `debian/`, also run `./test-package.sh`.
 
 ## Support
 
-[Add support information here]
+Please open an issue on [GitHub](https://github.com/vpacher/orbiq_system_monitor/issues).
+Include the OrbIQ version (`dpkg -s orbiq-system-monitor`), your distribution and
+architecture, and the relevant log lines.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
