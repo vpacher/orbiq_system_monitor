@@ -191,6 +191,11 @@ cross build --release --target aarch64-unknown-linux-gnu
 # Test the package scripts (install, preseed, upgrades, purge, interactive setup)
 # in a debian:bookworm container; needs podman or CONTAINER_ENGINE=docker
 ./test-package.sh
+# Publish a GitHub release for the version in Cargo.toml (tag v<version>):
+# full gate (clippy, tests, cross builds, package tests), then .debs, raw
+# binaries and SHA256SUMS. --dry-run stops before tagging and shows the notes.
+./release.sh --dry-run
+./release.sh
 
 ## Systemd Service File
 ini [Unit] Description=OrbIQ System Monitor After=network.target Wants=network.target

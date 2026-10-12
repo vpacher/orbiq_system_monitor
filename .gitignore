@@ -5,3 +5,4 @@
 .idea
 deploy.sh
 .DS_Store
+/dist
