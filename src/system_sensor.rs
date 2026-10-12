@@ -3,8 +3,8 @@ use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
 use crate::sensors::{SystemSensor, SystemSensorType};
 
 // Helper function to round to specified decimal places
-fn round_to_decimals(value: f64, decimals: u32) -> f64 {
-    let multiplier = 10_f64.powi(decimals as i32);
+fn round_to_decimals(value: f64, decimals: i32) -> f64 {
+    let multiplier = 10_f64.powi(decimals);
     (value * multiplier).round() / multiplier
 }
 
@@ -19,9 +19,20 @@ thread_local! {
     ));
 }
 
-pub fn collect_system_stats() -> Vec<SystemSensor> {
-    let mut sensors = Vec::new();
+#[allow(clippy::cast_precision_loss)] // byte counts in GB: f64 precision is ample
+fn bytes_to_gb(bytes: u64) -> f64 {
+    round_to_decimals(bytes as f64 / (1024.0 * 1024.0 * 1024.0), 2)
+}
 
+#[allow(clippy::cast_precision_loss)]
+fn percent(part: u64, total: u64) -> f64 {
+    if total == 0 {
+        return 0.0;
+    }
+    round_to_decimals(part as f64 / total as f64 * 100.0, 1)
+}
+
+pub fn collect_system_stats() -> Vec<SystemSensor> {
     let (cpu_usage, total_memory, used_memory) = SYSTEM.with(|system| {
         let mut system = system.borrow_mut();
         system.refresh_cpu_usage();
@@ -29,46 +40,12 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
         (system.global_cpu_usage(), system.total_memory(), system.used_memory())
     });
 
-    // CPU usage (overall) - rounded to 1 decimal place
-    sensors.push(SystemSensor {
-        name: "cpu_usage".to_string(),
-        label: None,
-        value: round_to_decimals(cpu_usage as f64, 1),
-        unit: "%".to_string(),
-        sensor_type: SystemSensorType::CpuUsage,
-    });
-
-    // Memory usage - rounded to 1 decimal place
-    let memory_usage_percent = if total_memory > 0 {
-        let percent = (used_memory as f64 / total_memory as f64) * 100.0;
-        round_to_decimals(percent, 1)
-    } else {
-        0.0
-    };
-
-    sensors.push(SystemSensor {
-        name: "memory_usage".to_string(),
-        label: None,
-        value: memory_usage_percent,
-        unit: "%".to_string(),
-        sensor_type: SystemSensorType::MemoryUsage,
-    });
-
-    sensors.push(SystemSensor {
-        name: "memory_used".to_string(),
-        label: None,
-        value: round_to_decimals((used_memory as f64) / (1024.0 * 1024.0 * 1024.0), 2),
-        unit: "GB".to_string(),
-        sensor_type: SystemSensorType::MemoryUsed,
-    });
-
-    sensors.push(SystemSensor {
-        name: "memory_total".to_string(),
-        label: None,
-        value: round_to_decimals((total_memory as f64) / (1024.0 * 1024.0 * 1024.0), 2),
-        unit: "GB".to_string(),
-        sensor_type: SystemSensorType::MemoryTotal,
-    });
+    let mut sensors = vec![
+        SystemSensor::number("cpu_usage", None, round_to_decimals(f64::from(cpu_usage), 1), "%", SystemSensorType::CpuUsage),
+        SystemSensor::number("memory_usage", None, percent(used_memory, total_memory), "%", SystemSensorType::MemoryUsage),
+        SystemSensor::number("memory_used", None, bytes_to_gb(used_memory), "GB", SystemSensorType::MemoryUsed),
+        SystemSensor::number("memory_total", None, bytes_to_gb(total_memory), "GB", SystemSensorType::MemoryTotal),
+    ];
 
     // Disk usage for all mounted disks
     let disks = Disks::new_with_refreshed_list();
@@ -77,47 +54,40 @@ pub fn collect_system_stats() -> Vec<SystemSensor> {
         let name_suffix = if mount_point == "/" {
             "root".to_string()
         } else {
-            mount_point
-                .replace(['/', ' '], "_")
-                .trim_matches('_')
-                .to_string()
+            mount_point.replace(['/', ' '], "_").trim_matches('_').to_string()
         };
 
         let total_space = disk.total_space();
-        let available_space = disk.available_space();
-        let used_space = total_space - available_space;
+        // saturating: some filesystems (e.g. fuse/overlay) can report available > total.
+        let used_space = total_space.saturating_sub(disk.available_space());
 
-        let usage_percent = if total_space > 0 {
-            let percent = (used_space as f64 / total_space as f64) * 100.0;
-            round_to_decimals(percent, 1)
-        } else {
-            0.0
-        };
-
-        sensors.push(SystemSensor {
-            name: format!("disk_usage_{}", name_suffix),
-            label: None,
-            value: usage_percent,
-            unit: "%".to_string(),
-            sensor_type: SystemSensorType::DiskUsage,
-        });
-
-        sensors.push(SystemSensor {
-            name: format!("disk_used_{}", name_suffix),
-            label: None,
-            value: round_to_decimals((used_space as f64) / (1024.0 * 1024.0 * 1024.0), 2),
-            unit: "GB".to_string(),
-            sensor_type: SystemSensorType::DiskUsed,
-        });
-
-        sensors.push(SystemSensor {
-            name: format!("disk_total_{}", name_suffix),
-            label: None,
-            value: round_to_decimals((total_space as f64) / (1024.0 * 1024.0 * 1024.0), 2),
-            unit: "GB".to_string(),
-            sensor_type: SystemSensorType::DiskTotal,
-        });
+        sensors.push(SystemSensor::number(
+            format!("disk_usage_{name_suffix}"), None, percent(used_space, total_space), "%", SystemSensorType::DiskUsage,
+        ));
+        sensors.push(SystemSensor::number(
+            format!("disk_used_{name_suffix}"), None, bytes_to_gb(used_space), "GB", SystemSensorType::DiskUsed,
+        ));
+        sensors.push(SystemSensor::number(
+            format!("disk_total_{name_suffix}"), None, bytes_to_gb(total_space), "GB", SystemSensorType::DiskTotal,
+        ));
     }
 
     sensors
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percent_handles_zero_total_and_rounds() {
+        assert_eq!(percent(1, 0), 0.0);
+        assert_eq!(percent(1, 3), 33.3);
+    }
+
+    #[test]
+    fn bytes_to_gb_rounds_to_two_decimals() {
+        assert_eq!(bytes_to_gb(1024 * 1024 * 1024), 1.0);
+        assert_eq!(bytes_to_gb(1536 * 1024 * 1024), 1.5);
+    }
 }

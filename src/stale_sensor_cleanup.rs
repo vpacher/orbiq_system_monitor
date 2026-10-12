@@ -21,7 +21,7 @@ pub async fn remove_stale_sensors(
 ) {
     let wildcard = discovery_wildcard_topic(device_name);
     if let Err(e) = client.subscribe(&wildcard, QoS::AtLeastOnce).await {
-        eprintln!("Failed to subscribe for stale sensor reconciliation: {}", e);
+        eprintln!("Failed to subscribe for stale sensor reconciliation: {e}");
         return;
     }
 
@@ -42,7 +42,7 @@ pub async fn remove_stale_sensors(
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    eprintln!("MQTT error during stale sensor reconciliation: {}", e);
+                    eprintln!("MQTT error during stale sensor reconciliation: {e}");
                     break;
                 }
             }
@@ -51,7 +51,7 @@ pub async fn remove_stale_sensors(
     .await;
 
     if let Err(e) = client.unsubscribe(&wildcard).await {
-        eprintln!("Failed to unsubscribe after stale sensor reconciliation: {}", e);
+        eprintln!("Failed to unsubscribe after stale sensor reconciliation: {e}");
     }
 
     let stale: Vec<&String> = previously_published
@@ -71,7 +71,7 @@ pub async fn remove_stale_sensors(
     for sensor_name in stale {
         for payload in stale_sensor_removal_payloads(sensor_name, device_name) {
             if let Err(e) = publish(client, payload).await {
-                eprintln!("Failed to remove stale sensor {}: {}", sensor_name, e);
+                eprintln!("Failed to remove stale sensor {sensor_name}: {e}");
             }
         }
     }

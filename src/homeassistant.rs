@@ -1,5 +1,6 @@
 use crate::mqtt_client::MqttPayload;
 use crate::sensors::{SystemSensor, SystemSensorType};
+use crate::config::{DEVICE_MANUFACTURER, DEVICE_MODEL};
 use serde_json::json;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -12,20 +13,13 @@ pub struct DeviceInfo {
     pub hw_version: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct Topic {
-    sensor_name: String,
-    device_name: String,
-    sub_topic: String,
-}
-
 impl DeviceInfo {
     pub fn from_config(device_config: &crate::config::DeviceConfig) -> Self {
         Self {
             identifiers: vec![format!("orbiq_{}", device_config.name)],
             name: device_config.name.clone(),
-            model: "OrbIQ System Monitor".to_string(),
-            manufacturer: "OrbIQ".to_string(),
+            model: DEVICE_MODEL.to_string(),
+            manufacturer: DEVICE_MANUFACTURER.to_string(),
             sw_version: device_config
                 .sw_version
                 .clone()
@@ -38,75 +32,63 @@ impl DeviceInfo {
     }
 }
 
+fn last_segment(name: &str) -> &str {
+    name.rsplit('_').next().unwrap_or("Unknown")
+}
+
 // Generate friendly names for temperature sensors
-fn generate_friendly_name(sensor :&SystemSensor) -> String {
+fn generate_friendly_name(sensor: &SystemSensor) -> String {
     match sensor.name.as_str() {
         name if name.contains("k10temp") => "CPU Temperature".to_string(),
         name if name.contains("nouveau") => "GPU Temperature".to_string(),
         name if name.contains("nvidia") => sensor.label.clone().unwrap_or_else(|| "GPU Temperature".to_string()),
-        name if name.contains("nvme") => format!(
-            "NVMe {} Temperature",
-            name.split('_').last().unwrap_or("Unknown")
-        ),
-        name if name.contains("coretemp") => format!(
-            "Core {} Temperature",
-            name.split('_').last().unwrap_or("Unknown")
-        ),
+        name if name.contains("nvme") => format!("NVMe {} Temperature", last_segment(name)),
+        name if name.contains("coretemp") => format!("Core {} Temperature", last_segment(name)),
         name if name.contains("acpi") => "System Temperature".to_string(),
         name if name.contains("amdgpu") => "AMD GPU Temperature".to_string(),
         name if name.contains("radeon") => "Radeon GPU Temperature".to_string(),
         name if name.contains("asus") => "ASUS Sensor Temperature".to_string(),
         name if name.contains("iwlwifi") => "WiFi Module Temperature".to_string(),
         name if name.contains("thermal") => "Thermal Zone Temperature".to_string(),
-        name if name.contains("nct6687") => sensor.label.clone().unwrap_or(name.replace("_", " ")),
-        _ => format!("{} Temperature", sensor.name.replace("_", " ")),
+        name if name.contains("nct6687") => sensor.label.clone().unwrap_or_else(|| name.replace('_', " ")),
+        _ => format!("{} Temperature", sensor.name.replace('_', " ")),
     }
 }
 
 fn generate_friendly_name_for_fan(sensor: &SystemSensor) -> String {
     match &sensor.label {
-        Some(label) => label.to_string(),
+        Some(label) => label.clone(),
         None => format!("Fan {}", sensor.name),
     }
 }
 
 fn generate_friendly_name_for_current(sensor: &SystemSensor) -> String {
     match &sensor.label {
-        Some(label) => format!("{} Current", label),
+        Some(label) => format!("{label} Current"),
         None => "Current".to_string(),
     }
 }
+
+// "disk_used_mnt_data" -> "Disk Used (MNT DATA)", "disk_used_root" -> "Disk Used (Root)"
+fn disk_friendly_name(sensor: &SystemSensor, prefix: &str, title: &str) -> String {
+    if sensor.name.contains("root") {
+        format!("{title} (Root)")
+    } else {
+        let mount_name = sensor.name.replace(prefix, "").replace('_', " ");
+        format!("{title} ({})", mount_name.to_uppercase())
+    }
+}
+
 // Generate friendly names for system sensors
 fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
-    match &sensor.sensor_type {
+    match sensor.sensor_type {
         SystemSensorType::CpuUsage => "CPU Usage".to_string(),
         SystemSensorType::MemoryUsage => "Memory Usage".to_string(),
         SystemSensorType::MemoryUsed => "Memory Used".to_string(),
         SystemSensorType::MemoryTotal => "Memory Total".to_string(),
-        SystemSensorType::DiskUsage => {
-            if sensor.name.contains("root") {
-                "Disk Usage (Root)".to_string()
-            } else {
-                let mount_name = sensor.name.replace("disk_usage_", "").replace("_", " ");
-                format!("Disk Usage ({})", mount_name.to_uppercase())
-            }
-        }
-        SystemSensorType::DiskUsed => {
-            if sensor.name.contains("root") {
-                "Disk Used (Root)".to_string()
-            } else {
-                let mount_name = sensor.name.replace("disk_used_", "").replace("_", " ");
-                format!("Disk Used ({})", mount_name.to_uppercase())
-            }
-        }
-        SystemSensorType::DiskTotal => {
-            if sensor.name.contains("root") {
-                "Disk Total (Root)".to_string()
-            } else {
-                let mount_name = sensor.name.replace("disk_total_", "").replace("_", " ");
-                format!("Disk Total ({})", mount_name.to_uppercase())
-            }
-        }
+        SystemSensorType::DiskUsage => disk_friendly_name(sensor, "disk_usage_", "Disk Usage"),
+        SystemSensorType::DiskUsed => disk_friendly_name(sensor, "disk_used_", "Disk Used"),
+        SystemSensorType::DiskTotal => disk_friendly_name(sensor, "disk_total_", "Disk Total"),
         SystemSensorType::Fan => generate_friendly_name_for_fan(sensor),
         SystemSensorType::Current => generate_friendly_name_for_current(sensor),
         SystemSensorType::Temperature => generate_friendly_name(sensor),
@@ -114,29 +96,27 @@ fn generate_system_friendly_name(sensor: &SystemSensor) -> String {
         SystemSensorType::GpuMemoryUsage => {
             sensor.label.clone().unwrap_or_else(|| "GPU Memory Usage".to_string())
         }
+        SystemSensorType::CpuFrequency => {
+            if sensor.name == "cpu_max_frequency" {
+                "CPU Max Frequency".to_string()
+            } else {
+                "CPU Frequency".to_string()
+            }
+        }
+        SystemSensorType::CpuGovernor => "CPU Governor".to_string(),
+        SystemSensorType::CpuEnergyPreference => "CPU Energy Preference".to_string(),
+        SystemSensorType::CpuBoost => "CPU Boost".to_string(),
     }
 }
 
-fn topic(data: Topic) -> String {
-    format!(
-        "homeassistant/sensor/orbiq_{}/{}/{}",
-        data.device_name, data.sensor_name, data.sub_topic
-    )
+fn topic(device_name: &str, sensor_name: &str, sub_topic: &str) -> String {
+    format!("homeassistant/sensor/orbiq_{device_name}/{sensor_name}/{sub_topic}")
 }
 
 pub fn system_state(sensor: &SystemSensor, device_name: &str) -> MqttPayload {
-    let topic_data = Topic {
-        device_name: device_name.parse().unwrap(),
-        sensor_name: sensor.name.clone(),
-        sub_topic: "state".to_string(),
-    };
-
-    let payload = json!({
-        "value": sensor.value
-    });
     MqttPayload {
-        topic: topic(topic_data),
-        payload: payload.to_string(),
+        topic: topic(device_name, &sensor.name, "state"),
+        payload: json!({ "value": sensor.value }).to_string(),
         retain: false,
     }
 }
@@ -146,15 +126,9 @@ pub fn system_sensor_availability(
     device_name: &str,
     available: bool,
 ) -> MqttPayload {
-    let topic_data = Topic {
-        device_name: device_name.parse().unwrap(),
-        sensor_name: sensor.name.clone(),
-        sub_topic: "availability".to_string(),
-    };
-    let payload = if available { "online" } else { "offline" };
     MqttPayload {
-        topic: topic(topic_data),
-        payload: payload.parse().unwrap(),
+        topic: topic(device_name, &sensor.name, "availability"),
+        payload: if available { "online" } else { "offline" }.to_string(),
         retain: true,
     }
 }
@@ -162,12 +136,12 @@ pub fn system_sensor_availability(
 // Topic pattern used to subscribe for previously-published discovery configs on startup,
 // so they can be diffed against currently-detected sensors and stale ones removed.
 pub fn discovery_wildcard_topic(device_name: &str) -> String {
-    format!("homeassistant/sensor/orbiq_{}/+/config", device_name)
+    topic(device_name, "+", "config")
 }
 
 // Recovers the sensor name from a discovery config topic matching discovery_wildcard_topic.
 pub fn extract_discovered_sensor_name(topic_str: &str, device_name: &str) -> Option<String> {
-    let prefix = format!("homeassistant/sensor/orbiq_{}/", device_name);
+    let prefix = format!("homeassistant/sensor/orbiq_{device_name}/");
     topic_str
         .strip_prefix(prefix.as_str())?
         .strip_suffix("/config")
@@ -177,29 +151,14 @@ pub fn extract_discovered_sensor_name(topic_str: &str, device_name: &str) -> Opt
 // An empty retained payload on the config topic tells Home Assistant to remove the entity.
 // The availability topic is cleared too so no stale retained state lingers on the broker.
 pub fn stale_sensor_removal_payloads(sensor_name: &str, device_name: &str) -> Vec<MqttPayload> {
-    let config_topic = topic(Topic {
-        device_name: device_name.to_string(),
-        sensor_name: sensor_name.to_string(),
-        sub_topic: "config".to_string(),
-    });
-    let availability_topic = topic(Topic {
-        device_name: device_name.to_string(),
-        sensor_name: sensor_name.to_string(),
-        sub_topic: "availability".to_string(),
-    });
-
-    vec![
-        MqttPayload {
-            topic: config_topic,
+    ["config", "availability"]
+        .into_iter()
+        .map(|sub_topic| MqttPayload {
+            topic: topic(device_name, sensor_name, sub_topic),
             payload: String::new(),
             retain: true,
-        },
-        MqttPayload {
-            topic: availability_topic,
-            payload: String::new(),
-            retain: true,
-        },
-    ]
+        })
+        .collect()
 }
 
 pub fn system_discovery_config(
@@ -207,47 +166,14 @@ pub fn system_discovery_config(
     device_name: &str,
     device_info: &DeviceInfo,
 ) -> MqttPayload {
-    let unique_id = format!("orbiq_{}_{}", device_name, sensor.name);
-    let default_entity_id = format!("sensor.orbiq_{}_{}", device_name, sensor.name);
-    let config_topic = format!(
-        "homeassistant/sensor/orbiq_{}/{}/config",
-        device_name, sensor.name
-    );
-    let state_topic = format!(
-        "homeassistant/sensor/orbiq_{}/{}/state",
-        device_name, sensor.name
-    );
-    let availability_topic = format!(
-        "homeassistant/sensor/orbiq_{}/{}/availability",
-        device_name, sensor.name
-    );
-    let device_class = match &sensor.sensor_type {
-        SystemSensorType::CpuUsage
-        | SystemSensorType::MemoryUsage
-        | SystemSensorType::DiskUsage
-        | SystemSensorType::GpuUsage
-        | SystemSensorType::GpuMemoryUsage => None,
-        SystemSensorType::MemoryUsed
-        | SystemSensorType::MemoryTotal
-        | SystemSensorType::DiskUsed
-        | SystemSensorType::DiskTotal => Some("data_size"),
-        SystemSensorType::Temperature => Some("temperature"),
-        SystemSensorType::Fan => None,
-        SystemSensorType::Current => Some("current"),
-    };
-
-    let friendly_name = generate_system_friendly_name(sensor);
-
     let mut config = json!({
-        "name": friendly_name,
-        "unique_id": unique_id,
-        "default_entity_id": default_entity_id,
-        "state_topic": state_topic,
-        "unit_of_measurement": sensor.unit,
-        "state_class": "measurement",
+        "name": generate_system_friendly_name(sensor),
+        "unique_id": format!("orbiq_{device_name}_{}", sensor.name),
+        "default_entity_id": format!("sensor.orbiq_{device_name}_{}", sensor.name),
+        "state_topic": topic(device_name, &sensor.name, "state"),
         "value_template": "{{ value_json.value }}",
         "availability": {
-            "topic": availability_topic,
+            "topic": topic(device_name, &sensor.name, "availability"),
             "payload_available": "online",
             "payload_not_available": "offline"
         },
@@ -255,11 +181,17 @@ pub fn system_discovery_config(
         "device": device_info
     });
 
-    if let Some(class) = device_class {
+    // Text sensors (e.g. a governor name) must not carry a unit or state_class:
+    // Home Assistant would then expect a number and reject the state.
+    if !sensor.is_text() {
+        config["unit_of_measurement"] = json!(sensor.unit);
+        config["state_class"] = json!("measurement");
+    }
+    if let Some(class) = sensor.sensor_type.device_class() {
         config["device_class"] = json!(class);
     }
     MqttPayload {
-        topic: config_topic,
+        topic: topic(device_name, &sensor.name, "config"),
         payload: config.to_string(),
         retain: true,
     }
@@ -301,13 +233,7 @@ mod tests {
 
     #[test]
     fn test_system_discovery_config_uses_default_entity_id_not_deprecated_object_id() {
-        let sensor = SystemSensor {
-            name: "cpu_usage".to_string(),
-            label: None,
-            value: 12.3,
-            unit: "%".to_string(),
-            sensor_type: SystemSensorType::CpuUsage,
-        };
+        let sensor = SystemSensor::number("cpu_usage", None, 12.3, "%", SystemSensorType::CpuUsage);
         let device_info = DeviceInfo {
             identifiers: vec!["orbiq_my-device".to_string()],
             name: "my-device".to_string(),
@@ -337,5 +263,47 @@ mod tests {
         }
         assert!(payloads[0].topic.ends_with("/config"));
         assert!(payloads[1].topic.ends_with("/availability"));
+    }
+
+    fn device_info() -> DeviceInfo {
+        DeviceInfo {
+            identifiers: vec!["orbiq_my-device".to_string()],
+            name: "my-device".to_string(),
+            model: DEVICE_MODEL.to_string(),
+            manufacturer: DEVICE_MANUFACTURER.to_string(),
+            sw_version: None,
+            hw_version: None,
+        }
+    }
+
+    #[test]
+    fn text_sensor_discovery_has_no_unit_or_state_class() {
+        let sensor = SystemSensor::text("cpu_governor", "performance", SystemSensorType::CpuGovernor);
+        let config: serde_json::Value =
+            serde_json::from_str(&system_discovery_config(&sensor, "my-device", &device_info()).payload).unwrap();
+        assert_eq!(config["name"], "CPU Governor");
+        assert!(config.get("unit_of_measurement").is_none());
+        assert!(config.get("state_class").is_none());
+        assert!(config.get("device_class").is_none());
+    }
+
+    #[test]
+    fn numeric_sensor_discovery_keeps_unit_state_class_and_device_class() {
+        let sensor = SystemSensor::number("cpu_max_frequency", None, 5086.0, "MHz", SystemSensorType::CpuFrequency);
+        let config: serde_json::Value =
+            serde_json::from_str(&system_discovery_config(&sensor, "my-device", &device_info()).payload).unwrap();
+        assert_eq!(config["name"], "CPU Max Frequency");
+        assert_eq!(config["unit_of_measurement"], "MHz");
+        assert_eq!(config["state_class"], "measurement");
+        assert_eq!(config["device_class"], "frequency");
+    }
+
+    #[test]
+    fn state_payload_serialises_numbers_and_text_unquoted_and_quoted() {
+        let num = SystemSensor::number("cpu_usage", None, 12.5, "%", SystemSensorType::CpuUsage);
+        let txt = SystemSensor::text("cpu_boost", "on", SystemSensorType::CpuBoost);
+        assert_eq!(system_state(&num, "d").payload, r#"{"value":12.5}"#);
+        assert_eq!(system_state(&txt, "d").payload, r#"{"value":"on"}"#);
+        assert_eq!(system_state(&txt, "d").topic, "homeassistant/sensor/orbiq_d/cpu_boost/state");
     }
 }

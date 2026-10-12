@@ -44,34 +44,35 @@ pub async fn publish(client: &AsyncClient, data: MqttPayload) -> Result<(), rumq
         .await
 }
 
+/// Availability is re-published every this many cycles, so a broker restart
+/// that lost retained messages recovers without a daemon restart.
+const AVAILABILITY_REFRESH_CYCLES: u32 = 20;
+
 pub async fn publish_handler(
     client: &AsyncClient,
     payload: &MqttSensorTopics,
     published_sensors: &mut HashSet<String>,
     discovery_delay_ms: u64,
-    cycle_counter: &mut u32,
+    cycle: u32,
 ) {
     if !published_sensors.contains(&payload.name) {
-        //publish Discovery
-        if let Err(e) = publish(&client, payload.discovery.clone()).await {
-            eprintln!("Discovery config error: {}", e);
+        if let Err(e) = publish(client, payload.discovery.clone()).await {
+            eprintln!("Discovery config error: {e}");
         } else {
-            //publish availability
-            published_sensors.insert(payload.name.parse().unwrap() /* std::string::String */);
+            published_sensors.insert(payload.name.clone());
             // Mark as available immediately after discovery
-            if let Err(e) = publish(&client, payload.availability.clone()).await {
-                eprintln!("Availability publish error: {}", e);
+            if let Err(e) = publish(client, payload.availability.clone()).await {
+                eprintln!("Availability publish error: {e}");
             }
         }
         time::sleep(Duration::from_millis(discovery_delay_ms)).await;
     }
-    //publish state
-    if let Err(e) = publish(&client, payload.state.clone()).await {
-        eprintln!("State publish error: {}", e);
+    if let Err(e) = publish(client, payload.state.clone()).await {
+        eprintln!("State publish error: {e}");
     }
-    if *cycle_counter % 20 == 0 {
-        if let Err(e) = publish(&client, payload.availability.clone()).await {
-            eprintln!("Availability refresh error: {}", e);
-        }
+    if cycle.is_multiple_of(AVAILABILITY_REFRESH_CYCLES)
+        && let Err(e) = publish(client, payload.availability.clone()).await
+    {
+        eprintln!("Availability refresh error: {e}");
     }
 }

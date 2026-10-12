@@ -17,7 +17,7 @@ pub fn discover_hwmon_devices() -> Result<Vec<HwmonDevice>, std::io::Error> {
 
         if let Some(hwmon_name) = hwmon_path.file_name() {
             let hwmon_name = hwmon_name.to_string_lossy().to_string();
-            let device_name = read_device_name(&hwmon_path).unwrap_or_else(|| hwmon_name);
+            let device_name = read_device_name(&hwmon_path).unwrap_or(hwmon_name);
 
             devices.push(HwmonDevice {
                 path: hwmon_path,
@@ -40,7 +40,7 @@ fn read_device_name(hwmon_path: &Path) -> Option<String> {
 /// like a network interface name, which can contain colons) and flow directly
 /// into MQTT topic segments and HA entity/unique IDs downstream. Replace
 /// anything outside [A-Za-z0-9_-] with '_' so a raw kernel string can never
-/// produce an invalid topic (e.g. "r8169_0_2a00:00" -> "r8169_0_2a00_00").
+/// produce an invalid topic (e.g. `r8169_0_2a00:00` -> `r8169_0_2a00_00`).
 fn sanitize_name(name: &str) -> String {
     name.chars()
         .map(|c| {

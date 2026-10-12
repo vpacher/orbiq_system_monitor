@@ -10,7 +10,7 @@ pub fn collect_all_gpu_sensors() -> Vec<SystemSensor> {
         // No nvidia-smi binary means no NVIDIA GPU present - not an error.
         Err(e) if e.kind() == ErrorKind::NotFound => Vec::new(),
         Err(e) => {
-            eprintln!("Failed to query nvidia-smi: {}", e);
+            eprintln!("Failed to query nvidia-smi: {e}");
             Vec::new()
         }
     }
@@ -18,13 +18,12 @@ pub fn collect_all_gpu_sensors() -> Vec<SystemSensor> {
 
 fn query_nvidia_smi() -> std::io::Result<String> {
     let output = Command::new("nvidia-smi")
-        .arg(format!("--query-gpu={}", NVIDIA_SMI_QUERY))
+        .arg(format!("--query-gpu={NVIDIA_SMI_QUERY}"))
         .arg("--format=csv,noheader,nounits")
         .output()?;
 
     if !output.status.success() {
-        return Err(std::io::Error::new(
-            ErrorKind::Other,
+        return Err(std::io::Error::other(
             String::from_utf8_lossy(&output.stderr).trim().to_string(),
         ));
     }
@@ -69,13 +68,13 @@ fn gpu_sensor(
     unit: &str,
     sensor_type: SystemSensorType,
 ) -> SystemSensor {
-    SystemSensor {
-        name: format!("nvidia_gpu{}_{}", index, name_suffix),
-        label: Some(format!("GPU {} {}", index, label_suffix)),
+    SystemSensor::number(
+        format!("nvidia_gpu{index}_{name_suffix}"),
+        Some(format!("GPU {index} {label_suffix}")),
         value,
-        unit: unit.to_string(),
+        unit,
         sensor_type,
-    }
+    )
 }
 
 #[cfg(test)]
@@ -87,7 +86,7 @@ mod tests {
         let sensors = parse_gpu_line("0, 45, 30, 12, 8");
         assert_eq!(sensors.len(), 4);
         assert_eq!(sensors[0].name, "nvidia_gpu0_temp");
-        assert_eq!(sensors[0].value, 45.0);
+        assert_eq!(sensors[0].value, crate::sensors::SensorValue::Number(45.0));
         assert_eq!(sensors[1].name, "nvidia_gpu0_fan");
         assert_eq!(sensors[2].name, "nvidia_gpu0_usage");
         assert_eq!(sensors[3].name, "nvidia_gpu0_memory_usage");

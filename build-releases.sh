@@ -6,6 +6,12 @@ VERSION=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
 
 echo "Building ${PROJECT_NAME} v${VERSION} for multiple targets..."
 
+# Quality gate: clippy with warnings as errors, then the tests, on the host
+# before the (slow) cross builds. Any lint or test failure stops the build,
+# and build-and-package.sh with it.
+cargo clippy --all-targets --locked -- -D warnings
+cargo test --locked
+
 # Create output directory
 mkdir -p releases
 

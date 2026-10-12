@@ -6,6 +6,8 @@ A lightweight, cross-platform system monitoring daemon that publishes system met
 
 - **System Metrics**: CPU usage, memory usage/total, disk usage/total for all mounted drives
 - **Temperature Monitoring**: Hardware temperature sensors (CPU, GPU, motherboard, etc.)
+- **Fans, Currents, GPU**: hwmon fan speeds and currents, NVIDIA GPU load/memory/fan via `nvidia-smi`
+- **CPU Frequency Scaling**: governor, energy-performance preference, boost and current/max frequency
 - **MQTT Integration**: Publishes metrics to MQTT broker with configurable intervals
 - **Home Assistant Auto-Discovery**: Automatically creates sensors in Home Assistant
 - **Cross-Platform**: Supports Linux (x86_64 and ARM64/aarch64)
@@ -18,6 +20,15 @@ A lightweight, cross-platform system monitoring daemon that publishes system met
 - **Memory Usage**: RAM usage percentage and absolute values (used/total in GB)
 - **Disk Usage**: Disk usage percentage and absolute values (used/total in GB) for all mounted filesystems
 - **Temperature Sensors**: Hardware temperature readings from available sensors (CPU, GPU, motherboard, etc.)
+- **Fan Sensors**: hwmon `fanN_input` in RPM (only fans that have a `fanN_label`)
+- **Current Sensors**: hwmon `currN_input` in mA
+- **NVIDIA GPU**: temperature, fan, usage and memory usage per GPU (when `nvidia-smi` is installed)
+- **CPU Frequency Scaling** (from `/sys/devices/system/cpu/cpufreq`, each only when the driver exposes it):
+  - `cpu_governor`: e.g. `performance`, `powersave`, `schedutil` (`mixed` if CPUs differ)
+  - `cpu_energy_preference`: EPP, e.g. `performance`, `balance_power`, `power` (amd-pstate-epp, intel_pstate)
+  - `cpu_boost`: `on` / `off` (`cpufreq/boost`, or the inverted `intel_pstate/no_turbo`)
+  - `cpu_max_frequency`: current frequency ceiling in MHz (highest `scaling_max_freq`)
+  - `cpu_frequency`: average current frequency across all CPUs in MHz
 
 # Installation
 
@@ -106,8 +117,11 @@ The service automatically publishes Home Assistant discovery messages, so sensor
 
 The service publishes to the following topic structure:
 
-- **State topics**: `orbiq/{device_name}/sensor/{sensor_name}/state`
-- **Discovery topics**: `homeassistant/sensor/orbiq_{device_name}/{sensor_name}/config`
+- **State topics**: `homeassistant/sensor/orbiq_{device_name}/{sensor_name}/state`, payload `{"value": <number or "text">}`
+- **Availability topics**: `homeassistant/sensor/orbiq_{device_name}/{sensor_name}/availability` (`online` / `offline`, retained)
+- **Discovery topics**: `homeassistant/sensor/orbiq_{device_name}/{sensor_name}/config` (retained)
+
+On shutdown (SIGTERM / Ctrl-C) every sensor is marked `offline` before the daemon disconnects.
 
 ### Example Sensors in Home Assistant
 
@@ -120,6 +134,8 @@ For a device named "server-01", you'll see sensors like:
 - `sensor.orbiq_server_01_disk_usage_root`
 - `sensor.orbiq_server_01_disk_used_root`
 - `sensor.orbiq_server_01_disk_total_root`
+- `sensor.orbiq_server_01_cpu_governor`
+- `sensor.orbiq_server_01_cpu_max_frequency`
 
 ## Building from Source
 
@@ -137,6 +153,7 @@ cross build --release --target x86_64-unknown-linux-gnu
 # Cross-compile for Linux ARM64
 cross build --release --target aarch64-unknown-linux-gnu
 # Build all targets and create releases
+# (runs `cargo clippy -- -D warnings` and `cargo test` first; any failure stops the build)
 ./build-releases.sh
 # Create Debian packages
 ./package-deb.sh

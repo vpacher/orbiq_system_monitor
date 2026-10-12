@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+pub const DEVICE_MODEL: &str = "OrbIQ System Monitor";
+pub const DEVICE_MANUFACTURER: &str = "OrbIQ";
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default)]
 pub struct MqttConfig {
@@ -52,8 +55,8 @@ impl Default for DeviceConfig {
     fn default() -> Self {
         Self {
             name: "system-monitor".to_string(),
-            model: "OrbIQ System Monitor".to_string(), // Hardcoded
-            manufacturer: "OrbIQ".to_string(), // Hardcoded
+            model: DEVICE_MODEL.to_string(),
+            manufacturer: DEVICE_MANUFACTURER.to_string(),
             sw_version: Some(env!("CARGO_PKG_VERSION").to_string()),
             hw_version: Some("1.0".to_string()),
         }
@@ -76,17 +79,17 @@ impl DaemonConfig {
         let content = fs::read_to_string(&path)
             .map_err(|e| ConfigError::FileRead(path.as_ref().to_path_buf(), e))?;
 
-        let mut config: DaemonConfig = toml::from_str(&content)
-            .map_err(|e| ConfigError::Parse(e))?;
+        let config: DaemonConfig = toml::from_str(&content).map_err(ConfigError::Parse)?;
+        Ok(config.with_derived_fields())
+    }
 
-        // Always override these hardcoded values regardless of what's in the config file
-        config.device.model = "OrbIQ System Monitor".to_string();
-        config.device.manufacturer = "OrbIQ".to_string();
-
-        // Always derive client_id from device name
-        config.mqtt.client_id = format!("orbiq-{}", config.device.name);
-
-        Ok(config)
+    /// Model and manufacturer are fixed regardless of the config file, and the MQTT
+    /// client ID is always derived from the device name.
+    fn with_derived_fields(mut self) -> Self {
+        self.device.model = DEVICE_MODEL.to_string();
+        self.device.manufacturer = DEVICE_MANUFACTURER.to_string();
+        self.mqtt.client_id = format!("orbiq-{}", self.device.name);
+        self
     }
 
     pub fn load_with_fallback() -> Self {
@@ -102,25 +105,19 @@ impl DaemonConfig {
             if Path::new(path).exists() {
                 match Self::load_from_file(path) {
                     Ok(config) => {
-                        println!("Loaded configuration from: {}", path);
+                        println!("Loaded configuration from: {path}");
                         return config;
                     }
                     Err(e) => {
-                        eprintln!("Failed to load config from {}: {}", path, e);
+                        eprintln!("Failed to load config from {path}: {e}");
                     }
                 }
             }
         }
 
         println!("No configuration file found, using defaults");
-        let mut default_config = Self::default();
-        // Always ensure proper client ID and hardcoded values
-        default_config.mqtt.client_id = format!("orbiq-{}", default_config.device.name);
-        default_config.device.model = "OrbIQ System Monitor".to_string();
-        default_config.device.manufacturer = "OrbIQ".to_string();
-        default_config
+        Self::default().with_derived_fields()
     }
-
 }
 
 #[derive(Debug)]
@@ -132,10 +129,32 @@ pub enum ConfigError {
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigError::FileRead(path, e) => write!(f, "Failed to read config file {}: {}", path.display(), e),
-            ConfigError::Parse(e) => write!(f, "Failed to parse config: {}", e),
+            ConfigError::FileRead(path, e) => write!(f, "Failed to read config file {}: {e}", path.display()),
+            ConfigError::Parse(e) => write!(f, "Failed to parse config: {e}"),
         }
     }
 }
 
 impl std::error::Error for ConfigError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derived_fields_override_the_config_file() {
+        let toml = r#"
+            [mqtt]
+            broker = "broker.example"
+            [device]
+            name = "box1"
+            model = "something else"
+        "#;
+        let config: DaemonConfig = toml::from_str::<DaemonConfig>(toml).unwrap().with_derived_fields();
+        assert_eq!(config.mqtt.client_id, "orbiq-box1");
+        assert_eq!(config.device.model, DEVICE_MODEL);
+        assert_eq!(config.device.manufacturer, DEVICE_MANUFACTURER);
+        assert_eq!(config.mqtt.broker, "broker.example");
+        assert_eq!(config.update_interval_secs, 30);
+    }
+}
