@@ -46,7 +46,7 @@ sudo dpkg -i orbiq_system_monitor_VERSION_arm64.deb
 1. Download the binary for your architecture from the releases page
 2. Copy to `/usr/bin/orbiq_system_monitor`
 3. Create configuration directory: `sudo mkdir -p /etc/orbiq_system_monitor`
-4. Copy the configuration file to `/etc/orbiq_system_monitor/config.toml`
+4. Copy `config/orbiq_system_monitor.toml` to `/etc/orbiq_system_monitor/config.toml` and `chmod 600` it (it holds the MQTT password)
 5. Create and enable the systemd service (see example service file below)
 
 ## Configuration
@@ -83,16 +83,47 @@ discovery_delay_ms = 200
 
 ### First-time Setup
 
-1. Install the package
-2. Edit the configuration file:
-   ```bash
-   sudo nano /etc/orbiq_system_monitor/config.toml
-   ```
-3. Start the service:
-   ```bash
-   sudo systemctl start orbiq_system_monitor
-   sudo systemctl enable orbiq_system_monitor
-   ```
+Installing the `.deb` starts a short guided setup (debconf):
+
+| Question | Default |
+|----------|---------|
+| MQTT broker host name or IP | (empty: configure later) |
+| MQTT port | `1883` |
+| MQTT user name | (empty: anonymous) |
+| MQTT password (only asked with a user name) | |
+| Device name (used in topics and entity IDs) | the host name |
+| Start now and on every boot? | yes |
+
+The answers are written to `/etc/orbiq_system_monitor/config.toml` (mode `600`, root only).
+The password is not kept in the debconf database.
+
+- **Change the answers later:** `sudo dpkg-reconfigure orbiq-system-monitor`. This only
+  asks again while the config file is missing or still the shipped example; a filled-in
+  config is never overwritten. To start over, remove the config file first.
+- **Upgrades** never ask questions and never touch an existing config. A running service
+  is restarted; a stopped or disabled one stays as it is.
+- **Configure by hand instead:** leave the broker empty, then
+  ```bash
+  sudo cp /usr/share/doc/orbiq-system-monitor/examples/config.toml /etc/orbiq_system_monitor/config.toml
+  sudo chmod 600 /etc/orbiq_system_monitor/config.toml
+  sudo nano /etc/orbiq_system_monitor/config.toml
+  sudo systemctl enable --now orbiq_system_monitor
+  ```
+- **Automated installs** (Ansible, cloud-init, ...): preseed the answers, then install
+  non-interactively:
+  ```bash
+  sudo debconf-set-selections <<'EOF'
+  orbiq-system-monitor orbiq-system-monitor/mqtt_broker string mqtt.example.lan
+  orbiq-system-monitor orbiq-system-monitor/mqtt_port string 1883
+  orbiq-system-monitor orbiq-system-monitor/mqtt_username string orbiq
+  orbiq-system-monitor orbiq-system-monitor/mqtt_password password secret
+  orbiq-system-monitor orbiq-system-monitor/device_name string server-01
+  orbiq-system-monitor orbiq-system-monitor/enable_service boolean true
+  EOF
+  sudo DEBIAN_FRONTEND=noninteractive dpkg -i orbiq_system_monitor_VERSION_amd64.deb
+  ```
+- **Purge** (`dpkg --purge orbiq-system-monitor`) removes the config directory and the
+  stored answers.
 
 ### Service Management
 bash
@@ -157,6 +188,9 @@ cross build --release --target aarch64-unknown-linux-gnu
 ./build-releases.sh
 # Create Debian packages
 ./package-deb.sh
+# Test the package scripts (install, preseed, upgrades, purge, interactive setup)
+# in a debian:bookworm container; needs podman or CONTAINER_ENGINE=docker
+./test-package.sh
 
 ## Systemd Service File
 ini [Unit] Description=OrbIQ System Monitor After=network.target Wants=network.target

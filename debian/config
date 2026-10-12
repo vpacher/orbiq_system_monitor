@@ -1,0 +1,82 @@
+#!/bin/sh
+# debconf questions for a first-time setup. postinst writes the config file
+# from the answers. Non-interactive installs (no terminal, preseeded answers,
+# DEBIAN_FRONTEND=noninteractive) get the defaults and never block.
+set -e
+. /usr/share/debconf/confmodule
+
+PKG=orbiq-system-monitor
+CONFIG=/etc/orbiq_system_monitor/config.toml
+
+# A filled-in config (edited by hand, from an earlier install, or provisioned,
+# e.g. a symlink to an encrypted volume) is never asked about or replaced.
+# Only a missing config or the shipped example with placeholders counts as new.
+if [ -e "$CONFIG" ] && ! grep -q '__MQTT_BROKER__\|__DEVICE_NAME__' "$CONFIG"; then
+    exit 0
+fi
+
+# Asks one question. Returns non-zero when debconf will not display it
+# (priority too low, non-interactive frontend), so validation loops stop.
+ask() {
+    rc=0
+    db_input high "$PKG/$1" || rc=$?
+    db_go || true
+    [ "$rc" -eq 0 ]
+}
+
+answer() {
+    db_get "$PKG/$1"
+    printf '%s' "$RET"
+}
+
+valid_port() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+valid_device_name() {
+    case "$1" in
+        ''|*[!A-Za-z0-9_-]*) return 1 ;;
+    esac
+}
+
+ask mqtt_broker || true
+if [ -z "$(answer mqtt_broker)" ]; then
+    # No broker: postinst leaves the example config in place and the service off.
+    exit 0
+fi
+
+# Validation loops are bounded: the noninteractive frontend reports every
+# question as displayed, so an invalid preseeded value would otherwise loop
+# forever. postinst falls back to a safe value (port 1883, sanitised name).
+for _attempt in 1 2 3; do
+    ask mqtt_port || break
+    # Empty means "keep the default"; text frontends store an empty answer as-is.
+    [ -z "$(answer mqtt_port)" ] && db_set "$PKG/mqtt_port" 1883
+    valid_port "$(answer mqtt_port)" && break
+    db_input high "$PKG/mqtt_port_invalid" || true
+    db_fset "$PKG/mqtt_port" seen false
+done
+
+ask mqtt_username || true
+if [ -n "$(answer mqtt_username)" ]; then
+    ask mqtt_password || true
+fi
+
+default_device_name() {
+    name=$(hostname -s 2>/dev/null | tr -c 'A-Za-z0-9_\n-' '_')
+    printf '%s' "${name:-system-monitor}"
+}
+
+[ -z "$(answer device_name)" ] && db_set "$PKG/device_name" "$(default_device_name)"
+for _attempt in 1 2 3; do
+    ask device_name || break
+    [ -z "$(answer device_name)" ] && db_set "$PKG/device_name" "$(default_device_name)"
+    valid_device_name "$(answer device_name)" && break
+    db_input high "$PKG/device_name_invalid" || true
+    db_fset "$PKG/device_name" seen false
+done
+
+ask enable_service || true

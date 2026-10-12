@@ -1,0 +1,52 @@
+Template: orbiq-system-monitor/mqtt_broker
+Type: string
+Default:
+Description: MQTT broker host name or IP address:
+ OrbIQ publishes its sensors to this MQTT broker, for example the one Home
+ Assistant uses. Enter a host name or an IP address, without "mqtt://" or a
+ port.
+ .
+ Leave it empty to configure /etc/orbiq_system_monitor/config.toml by hand
+ later. The service is not started without a broker.
+
+Template: orbiq-system-monitor/mqtt_port
+Type: string
+Default: 1883
+Description: MQTT broker port:
+ The default MQTT port is 1883.
+
+Template: orbiq-system-monitor/mqtt_port_invalid
+Type: error
+Description: Invalid port
+ The port must be a number from 1 to 65535.
+
+Template: orbiq-system-monitor/mqtt_username
+Type: string
+Default:
+Description: MQTT user name:
+ Leave it empty if the broker allows anonymous connections.
+
+Template: orbiq-system-monitor/mqtt_password
+Type: password
+Description: MQTT password:
+ The password is written to /etc/orbiq_system_monitor/config.toml (readable
+ by root only) and is not kept in the debconf database.
+
+Template: orbiq-system-monitor/device_name
+Type: string
+Default:
+Description: Device name:
+ The name of this machine in Home Assistant. It is part of every MQTT topic
+ and entity ID, so use only letters, digits, "-" and "_".
+
+Template: orbiq-system-monitor/device_name_invalid
+Type: error
+Description: Invalid device name
+ Use only letters, digits, "-" and "_".
+
+Template: orbiq-system-monitor/enable_service
+Type: boolean
+Default: true
+Description: Start OrbIQ now and on every boot?
+ If you choose no, start it later with:
+ systemctl enable --now orbiq_system_monitor

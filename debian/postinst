@@ -1,29 +1,113 @@
-#!/bin/bash
+#!/bin/sh
 set -e
+. /usr/share/debconf/confmodule
 
-echo "Post-install script running..."
-
-# Ensure config directory exists
-mkdir -p /etc/orbiq_system_monitor
-chown root:root /etc/orbiq_system_monitor
-chmod 755 /etc/orbiq_system_monitor
+PKG=orbiq-system-monitor
+SERVICE=orbiq_system_monitor
+CONFIG_DIR=/etc/orbiq_system_monitor
+CONFIG=$CONFIG_DIR/config.toml
 
 #DEBHELPER#
 
-SERVICE_NAME=orbiq_system_monitor
-CONFIG_PATH=/etc/orbiq_system_monitor/config.toml
-MARKER_FILE=/etc/orbiq_system_monitor/.configured
+# Same test as the debconf config script: missing, or still the example.
+is_configured() {
+    [ -e "$CONFIG" ] && ! grep -q '__MQTT_BROKER__\|__DEVICE_NAME__' "$CONFIG"
+}
 
-if [ "$1" = "configure" ]; then
-    if [ ! -f "$MARKER_FILE" ]; then
-        echo "First-time install detected."
-        echo "Please edit the config file at: $CONFIG_PATH"
-        echo "Once configured, run: sudo systemctl start $SERVICE_NAME"
-        touch "$MARKER_FILE"
-    else
-        echo "Upgrade detected. Restarting service..."
-        systemctl daemon-reexec
-        systemctl daemon-reload
-        systemctl restart "$SERVICE_NAME"
-    fi
-fi
+answer() {
+    db_get "$PKG/$1"
+    printf '%s' "$RET"
+}
+
+# stdout belongs to the debconf protocol once confmodule is loaded.
+say() {
+    echo "OrbIQ: $*" >&2
+}
+
+# Start/restart only under a running systemd (not in chroots or containers).
+systemd_running() {
+    [ -d /run/systemd/system ]
+}
+
+# Preseeded answers skip the config script's validation, so check them again.
+valid_port() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+# TOML basic string: escape backslash and double quote. debconf strings are
+# single-line, so no newline handling is needed.
+toml_string() {
+    printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+write_config() {
+    username=$(answer mqtt_username)
+    password=$(answer mqtt_password)
+    port=$(answer mqtt_port)
+    valid_port "$port" || port=1883
+    device=$(answer device_name | tr -c 'A-Za-z0-9_-' '_')
+    tmp=$(mktemp "$CONFIG_DIR/.config.toml.XXXXXX")
+    # printf, not echo: dash's echo interprets backslashes in the values.
+    {
+        printf '%s\n' "# Written by the orbiq-system-monitor package from the debconf answers."
+        printf '%s\n' "# Edit freely: package upgrades never overwrite this file."
+        printf '\n[mqtt]\n'
+        printf 'broker = %s\n' "$(toml_string "$(answer mqtt_broker)")"
+        printf 'port = %s\n' "$port"
+        if [ -n "$username" ]; then
+            printf 'username = %s\n' "$(toml_string "$username")"
+            printf 'password = %s\n' "$(toml_string "$password")"
+        fi
+        printf 'keep_alive_secs = 30\n'
+        printf '\n[device]\n'
+        printf 'name = %s\n' "$(toml_string "${device:-system-monitor}")"
+        printf 'hw_version = "1.0"\n'
+        printf '\n# Update interval in seconds\nupdate_interval_secs = 30\n'
+        printf '\n# Delay between discovery messages in milliseconds\ndiscovery_delay_ms = 200\n'
+    } > "$tmp"
+    chmod 600 "$tmp"
+    mv -f "$tmp" "$CONFIG"
+    # The password now lives only in the root-only config file.
+    db_set "$PKG/mqtt_password" ""
+}
+
+case "$1" in
+    configure)
+        install -d -m 755 -o root -g root "$CONFIG_DIR"
+        # Marker used by <= 0.3.0 to tell first install from upgrade; replaced by
+        # is_configured, which checks the config itself.
+        rm -f "$CONFIG_DIR/.configured"
+
+        if is_configured; then
+            # The config holds the MQTT password: root only. Symlinked configs are
+            # left alone, they are managed by whatever provisioned them.
+            if [ -f "$CONFIG" ] && [ ! -L "$CONFIG" ]; then
+                chmod 600 "$CONFIG"
+            fi
+            # Upgrade: the generated systemd section above already did daemon-reload and
+            # try-restart (restarts only a running service, never starts a stopped one).
+        elif [ -n "$(answer mqtt_broker)" ]; then
+            write_config
+            say "configuration written to $CONFIG"
+            if [ "$(answer enable_service)" = "true" ]; then
+                deb-systemd-helper enable "$SERVICE.service" >&2
+                if systemd_running; then
+                    systemctl daemon-reload
+                    systemctl start "$SERVICE" >&2
+                fi
+            else
+                say "start it later with: systemctl enable --now $SERVICE"
+            fi
+        else
+            say "not configured yet. Run: dpkg-reconfigure $PKG"
+            say "or copy /usr/share/doc/$PKG/examples/config.toml to $CONFIG (chmod 600),"
+            say "edit it, then: systemctl enable --now $SERVICE"
+        fi
+        ;;
+esac
+
+db_stop
+exit 0
