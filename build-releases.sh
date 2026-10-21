@@ -7,22 +7,35 @@ VERSION=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
 echo "Building ${PROJECT_NAME} v${VERSION} for multiple targets..."
 
 # Quality gate: clippy with warnings as errors, then the tests, on the host
-# before the (slow) cross builds. Any lint or test failure stops the build,
-# and build-and-package.sh with it.
+# before the cross builds. Any lint or test failure stops the build, and
+# build-and-package.sh with it.
 cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
 
 # Create output directory
 mkdir -p releases
 
+# Default: native rustc + zig as the linker (cargo-zigbuild), with the glibc
+# version pinned to 2.17 so the binaries match the .deb's
+# "libc6 (>= 2.17)" dependency. BUILD=cross uses the cross containers
+# instead (needs podman or docker).
+build_target() {
+    local target=$1
+    if [ "${BUILD:-zig}" = cross ]; then
+        CROSS_CONTAINER_OPTS="--platform linux/amd64" cross build --release --locked --target "$target"
+    else
+        cargo zigbuild --release --locked --target "${target}.2.17"
+    fi
+}
+
 # Build for x86_64 Linux (amd64)
 echo "Building for x86_64-unknown-linux-gnu (amd64)..."
-CROSS_CONTAINER_OPTS="--platform linux/amd64" cross build --release --target x86_64-unknown-linux-gnu
+build_target x86_64-unknown-linux-gnu
 cp "target/x86_64-unknown-linux-gnu/release/${PROJECT_NAME}" "releases/${PROJECT_NAME}-${VERSION}-amd64"
 
 # Build for aarch64 Linux (arm64/Raspberry Pi)
 echo "Building for aarch64-unknown-linux-gnu (aarch64)..."
- CROSS_CONTAINER_OPTS="--platform linux/amd64" cross build --release --target aarch64-unknown-linux-gnu
+build_target aarch64-unknown-linux-gnu
 cp "target/aarch64-unknown-linux-gnu/release/${PROJECT_NAME}" "releases/${PROJECT_NAME}-${VERSION}-aarch64"
 
 # Cleanup old releases - keep only the last 3 versions

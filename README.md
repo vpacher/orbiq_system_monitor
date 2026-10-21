@@ -221,11 +221,11 @@ host (e.g. the Proxmox node) to get the real sensors.
 
 ## Building from source
 
-Requirements: a Rust toolchain; for cross builds `cross` with podman or Docker.
+Requirements: a Rust toolchain; for the amd64 + arm64 builds [`cargo-zigbuild`](https://github.com/rust-cross/cargo-zigbuild) and `zig` (binaries pinned to glibc 2.17), or with `BUILD=cross`, `cross` with podman or Docker. The container tests need podman or Docker.
 
 ```bash
 cargo build --release                       # current platform
-./build-releases.sh                         # clippy -D warnings + tests, then amd64 + arm64 cross builds
+./build-releases.sh                         # clippy -D warnings + tests, then amd64 + arm64 builds (cargo-zigbuild)
 ./package-deb.sh                            # .deb packages from the cross builds
 ./test-package.sh                           # package install/upgrade/purge tests in a Debian container
 ./test-tls.sh                               # end-to-end TLS and mutual-TLS tests against Mosquitto in a container
