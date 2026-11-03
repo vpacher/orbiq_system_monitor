@@ -3,11 +3,13 @@
 # debian/tests/package-tests.sh in a debian:bookworm container: fresh install,
 # preseeded install, upgrades over existing/symlinked/placeholder configs,
 # purge, and an interactive run with typed answers.
-# Needs podman (or CONTAINER_ENGINE=docker) and packages/orbiq_system_monitor_0.3.0_arm64.deb.
+# Needs podman (or CONTAINER_ENGINE=docker or container) and
+# baseline/orbiq_system_monitor_0.3.0_arm64.deb. That file is kept outside
+# packages/ because package-deb.sh removes all but the 3 newest versions there.
 set -e
 
 ENGINE="${CONTAINER_ENGINE:-podman}"
-OLD_DEB="${OLD_DEB:-packages/orbiq_system_monitor_0.3.0_arm64.deb}"
+OLD_DEB="${OLD_DEB:-baseline/orbiq_system_monitor_0.3.0_arm64.deb}"
 
 VERSION=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
 cargo deb --target aarch64-unknown-linux-gnu --no-build >/dev/null
@@ -17,6 +19,6 @@ cp "target/aarch64-unknown-linux-gnu/debian/orbiq-system-monitor_${VERSION}-1_ar
 cp "$OLD_DEB" "$work/old.deb"
 cp debian/tests/package-tests.sh "$work/tests.sh"
 
-"$ENGINE" run --rm --platform linux/arm64 -v "$work:/t:ro" --hostname testbox \
+"$ENGINE" run --rm --platform linux/arm64 -v "$work:/t:ro" \
     docker.io/library/debian:bookworm sh /t/tests.sh | tee "$work/result.txt"
 grep -q "RESULT: .* 0 failed" "$work/result.txt"
